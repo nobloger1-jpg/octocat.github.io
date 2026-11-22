@@ -1,0 +1,238 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>Дела и привычки</title>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<style>
+  :root {
+    --bg: var(--tg-theme-bg-color, #ffffff);
+    --text: var(--tg-theme-text-color, #1c1c1e);
+    --hint: var(--tg-theme-hint-color, #8e8e93);
+    --link: var(--tg-theme-link-color, #2481cc);
+    --btn: var(--tg-theme-button-color, #2481cc);
+    --btn-text: var(--tg-theme-button-text-color, #ffffff);
+    --card: var(--tg-theme-secondary-bg-color, #f2f2f7);
+    --danger: #e5484d;
+    --ok: #30a46c;
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  body {
+    margin: 0; padding: 0 16px 90px;
+    background: var(--bg); color: var(--text);
+    font: 16px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  }
+  h1 { font-size: 22px; margin: 18px 0 4px; }
+  .sub { color: var(--hint); font-size: 14px; margin-bottom: 14px; }
+
+  .tabs { display: flex; background: var(--card); border-radius: 12px; padding: 3px; margin-bottom: 14px; }
+  .tab {
+    flex: 1; border: 0; background: transparent; color: var(--hint);
+    padding: 9px 0; border-radius: 10px; font-size: 15px; font-weight: 600; cursor: pointer;
+  }
+  .tab.active { background: var(--bg); color: var(--text); box-shadow: 0 1px 3px rgba(0,0,0,.12); }
+
+  .add { display: flex; gap: 8px; margin-bottom: 14px; }
+  .add input {
+    flex: 1; min-width: 0; border: 0; outline: 0; background: var(--card); color: var(--text);
+    padding: 12px 14px; border-radius: 12px; font-size: 16px;
+  }
+  .add button {
+    border: 0; background: var(--btn); color: var(--btn-text);
+    padding: 0 18px; border-radius: 12px; font-size: 22px; cursor: pointer;
+  }
+
+  .item {
+    display: flex; align-items: center; gap: 12px;
+    background: var(--card); border-radius: 14px; padding: 12px 14px; margin-bottom: 8px;
+  }
+  .check {
+    width: 26px; height: 26px; flex: none; border-radius: 50%;
+    border: 2px solid var(--hint); background: transparent; cursor: pointer;
+    display: grid; place-items: center; color: #fff; font-size: 15px; padding: 0;
+  }
+  .check.on { background: var(--ok); border-color: var(--ok); }
+  .title { flex: 1; min-width: 0; word-break: break-word; }
+  .done .title { text-decoration: line-through; color: var(--hint); }
+  .del { border: 0; background: transparent; color: var(--hint); font-size: 20px; cursor: pointer; padding: 4px 6px; }
+  .del:active { color: var(--danger); }
+
+  .habit-body { flex: 1; min-width: 0; }
+  .meta { display: flex; align-items: center; gap: 10px; margin-top: 6px; }
+  .dots { display: flex; gap: 4px; }
+  .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--hint); opacity: .25; }
+  .dot.on { background: var(--ok); opacity: 1; }
+  .streak { font-size: 13px; color: var(--hint); }
+
+  .empty { text-align: center; color: var(--hint); padding: 40px 0; }
+  .progress { height: 6px; background: var(--card); border-radius: 3px; overflow: hidden; margin-bottom: 14px; }
+  .progress > div { height: 100%; background: var(--ok); width: 0; transition: width .25s; }
+  .hidden { display: none; }
+</style>
+</head>
+<body>
+  <h1 id="hello">Привет!</h1>
+  <div class="sub" id="today"></div>
+
+  <div class="tabs">
+    <button class="tab active" data-tab="tasks">Задачи</button>
+    <button class="tab" data-tab="habits">Привычки</button>
+  </div>
+
+  <div class="progress"><div id="bar"></div></div>
+
+  <form class="add" id="addForm">
+    <input id="addInput" type="text" maxlength="100" autocomplete="off" placeholder="Новая задача…">
+    <button type="submit" aria-label="Добавить">+</button>
+  </form>
+
+  <div id="list"></div>
+
+<script>
+const tg = window.Telegram && Telegram.WebApp;
+if (tg) { tg.ready(); tg.expand(); }
+
+// ---------- Хранилище: Telegram CloudStorage с запасным localStorage ----------
+const store = {
+  get(key) {
+    return new Promise(resolve => {
+      if (tg && tg.CloudStorage && tg.isVersionAtLeast && tg.isVersionAtLeast('6.9')) {
+        tg.CloudStorage.getItem(key, (err, val) => resolve(err ? null : val));
+      } else {
+        try { resolve(localStorage.getItem(key)); } catch (e) { resolve(null); }
+      }
+    });
+  },
+  set(key, value) {
+    return new Promise(resolve => {
+      if (tg && tg.CloudStorage && tg.isVersionAtLeast && tg.isVersionAtLeast('6.9')) {
+        tg.CloudStorage.setItem(key, value, () => resolve());
+      } else {
+        try { localStorage.setItem(key, value); } catch (e) {}
+        resolve();
+      }
+    });
+  }
+};
+
+// ---------- Состояние ----------
+let state = { tasks: [], habits: [] };
+let tab = 'tasks';
+
+const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+const dayKey = (d = new Date()) => {
+  const z = n => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${z(d.getMonth() + 1)}-${z(d.getDate())}`;
+};
+const shiftDay = n => { const d = new Date(); d.setDate(d.getDate() + n); return dayKey(d); };
+
+async function load() {
+  const raw = await store.get('state');
+  if (raw) { try { state = Object.assign(state, JSON.parse(raw)); } catch (e) {} }
+}
+function save() { return store.set('state', JSON.stringify(state)); }
+
+// ---------- Привычки: серия дней ----------
+function streak(habit) {
+  const set = new Set(habit.days);
+  let n = 0, i = set.has(dayKey()) ? 0 : 1; // если сегодня ещё не отмечено, серия считается со вчера
+  while (set.has(shiftDay(-i))) { n++; i++; }
+  return n;
+}
+
+// ---------- Отрисовка ----------
+const $ = id => document.getElementById(id);
+const esc = s => s.replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
+function render() {
+  const list = $('list');
+  const input = $('addInput');
+  input.placeholder = tab === 'tasks' ? 'Новая задача…' : 'Новая привычка…';
+  document.querySelectorAll('.tab').forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
+
+  let html = '', done = 0, total = 0;
+
+  if (tab === 'tasks') {
+    total = state.tasks.length;
+    done = state.tasks.filter(t => t.done).length;
+    html = state.tasks.map(t => `
+      <div class="item ${t.done ? 'done' : ''}">
+        <button class="check ${t.done ? 'on' : ''}" data-act="toggle-task" data-id="${t.id}">${t.done ? '✓' : ''}</button>
+        <div class="title">${esc(t.title)}</div>
+        <button class="del" data-act="del-task" data-id="${t.id}" aria-label="Удалить">✕</button>
+      </div>`).join('');
+  } else {
+    const today = dayKey();
+    total = state.habits.length;
+    done = state.habits.filter(h => h.days.includes(today)).length;
+    html = state.habits.map(h => {
+      const on = h.days.includes(today);
+      const dots = Array.from({ length: 7 }, (_, i) =>
+        `<span class="dot ${h.days.includes(shiftDay(i - 6)) ? 'on' : ''}"></span>`).join('');
+      const s = streak(h);
+      return `
+      <div class="item">
+        <button class="check ${on ? 'on' : ''}" data-act="toggle-habit" data-id="${h.id}">${on ? '✓' : ''}</button>
+        <div class="habit-body">
+          <div class="title">${esc(h.title)}</div>
+          <div class="meta"><div class="dots">${dots}</div><span class="streak">🔥 ${s} дн.</span></div>
+        </div>
+        <button class="del" data-act="del-habit" data-id="${h.id}" aria-label="Удалить">✕</button>
+      </div>`;
+    }).join('');
+  }
+
+  list.innerHTML = html || `<div class="empty">${tab === 'tasks' ? 'Задач пока нет. Добавьте первую!' : 'Привычек пока нет. Заведите первую!'}</div>`;
+  $('bar').style.width = total ? Math.round(done / total * 100) + '%' : '0';
+}
+
+// ---------- События ----------
+function haptic(kind = 'light') {
+  try { tg && tg.HapticFeedback && tg.HapticFeedback.impactOccurred(kind); } catch (e) {}
+}
+
+document.querySelectorAll('.tab').forEach(b => b.addEventListener('click', () => {
+  tab = b.dataset.tab; haptic(); render();
+}));
+
+$('addForm').addEventListener('submit', async e => {
+  e.preventDefault();
+  const title = $('addInput').value.trim();
+  if (!title) return;
+  if (tab === 'tasks') state.tasks.unshift({ id: uid(), title, done: false });
+  else state.habits.push({ id: uid(), title, days: [] });
+  $('addInput').value = '';
+  haptic('medium'); render(); await save();
+});
+
+$('list').addEventListener('click', async e => {
+  const btn = e.target.closest('[data-act]');
+  if (!btn) return;
+  const { act, id } = btn.dataset;
+
+  if (act === 'toggle-task') {
+    const t = state.tasks.find(x => x.id === id); t.done = !t.done;
+  } else if (act === 'del-task') {
+    state.tasks = state.tasks.filter(x => x.id !== id);
+  } else if (act === 'toggle-habit') {
+    const h = state.habits.find(x => x.id === id), today = dayKey();
+    h.days = h.days.includes(today) ? h.days.filter(d => d !== today) : [...h.days, today];
+    h.days = h.days.slice(-120); // не раздуваем хранилище
+  } else if (act === 'del-habit') {
+    state.habits = state.habits.filter(x => x.id !== id);
+  }
+  haptic(); render(); await save();
+});
+
+// ---------- Старт ----------
+(async function init() {
+  const user = tg && tg.initDataUnsafe && tg.initDataUnsafe.user;
+  if (user && user.first_name) $('hello').textContent = `Привет, ${user.first_name}!`;
+  $('today').textContent = new Date().toLocaleDateString('ru-RU', { weekday: 'long', day: 'numeric', month: 'long' });
+  await load();
+  render();
+})();
+</script>
+</body>
+</html>
