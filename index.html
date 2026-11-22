@@ -2,236 +2,1605 @@
 <html lang="ru">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<!-- Адрес сервера с API. Пусто = тот же адрес, с которого открыта страница (так работает bot.py).
+     Если страница лежит на статическом хостинге, впишите сюда адрес бота, например https://tracker.example.com -->
+<meta name="api-base" content="">
 <title>Дела и привычки</title>
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
 <style>
+  /* ---------- Цвета: тема Telegram, а вне Telegram светлая или тёмная по системе ---------- */
   :root {
-    --bg: var(--tg-theme-bg-color, #ffffff);
-    --text: var(--tg-theme-text-color, #1c1c1e);
-    --hint: var(--tg-theme-hint-color, #8e8e93);
-    --link: var(--tg-theme-link-color, #2481cc);
-    --btn: var(--tg-theme-button-color, #2481cc);
-    --btn-text: var(--tg-theme-button-text-color, #ffffff);
-    --card: var(--tg-theme-secondary-bg-color, #f2f2f7);
-    --danger: #e5484d;
-    --ok: #30a46c;
+    --f-bg: #ffffff; --f-text: #1c1c1e; --f-hint: #8e8e93; --f-card: #f2f2f7;
+    --f-accent: #2481cc; --f-accent-text: #ffffff;
+    /* Категориальная палитра для цветов привычек (проверенная, светлая тема) */
+    --c0: #2a78d6; --c1: #eb6834; --c2: #1baf7a; --c3: #eda100;
+    --c4: #e87ba4; --c5: #008300; --c6: #6250d6; --c7: #e34948;
   }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --f-bg: #1a1a19; --f-text: #f0efec; --f-hint: #9a9990; --f-card: #262624;
+      --f-accent: #3987e5; --f-accent-text: #ffffff;
+      --c0: #3987e5; --c1: #d95926; --c2: #199e70; --c3: #c98500;
+      --c4: #d55181; --c5: #0ca30c; --c6: #9085e9; --c7: #e66767;
+    }
+  }
+  :root[data-theme="dark"] {
+    --f-bg: #1a1a19; --f-text: #f0efec; --f-hint: #9a9990; --f-card: #262624;
+    --f-accent: #3987e5; --f-accent-text: #ffffff;
+    --c0: #3987e5; --c1: #d95926; --c2: #199e70; --c3: #c98500;
+    --c4: #d55181; --c5: #0ca30c; --c6: #9085e9; --c7: #e66767;
+  }
+  :root {
+    --bg: var(--tg-theme-bg-color, var(--f-bg));
+    --text: var(--tg-theme-text-color, var(--f-text));
+    --hint: var(--tg-theme-hint-color, var(--f-hint));
+    --card: var(--tg-theme-secondary-bg-color, var(--f-card));
+    --accent: var(--tg-theme-button-color, var(--f-accent));
+    --accent-text: var(--tg-theme-button-text-color, var(--f-accent-text));
+    --sep: rgba(128, 128, 128, .22);
+    --ok: #30a46c; --danger: #e5484d; --warn: #f5a524;
+  }
+
   * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  [hidden] { display: none !important; }
+  html { -webkit-text-size-adjust: 100%; }
   body {
-    margin: 0; padding: 0 16px 90px;
-    background: var(--bg); color: var(--text);
-    font: 16px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    margin: 0; padding: 0 16px calc(76px + env(safe-area-inset-bottom));
+    min-height: 100vh; background: var(--bg); color: var(--text);
+    font: 16px/1.35 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   }
-  h1 { font-size: 22px; margin: 18px 0 4px; }
-  .sub { color: var(--hint); font-size: 14px; margin-bottom: 14px; }
+  button { font: inherit; color: inherit; cursor: pointer; }
+  h1, h2, h3 { margin: 0; }
 
-  .tabs { display: flex; background: var(--card); border-radius: 12px; padding: 3px; margin-bottom: 14px; }
-  .tab {
-    flex: 1; border: 0; background: transparent; color: var(--hint);
-    padding: 9px 0; border-radius: 10px; font-size: 15px; font-weight: 600; cursor: pointer;
+  /* ---------- Шапка и сводка ---------- */
+  header { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 16px 0 12px; }
+  h1 { font-size: 21px; line-height: 1.2; font-weight: 700; }
+  .date { color: var(--hint); font-size: 14px; margin-top: 2px; }
+  .lvl {
+    border: 0; background: var(--card); border-radius: 999px; padding: 7px 13px;
+    font-size: 14px; font-weight: 600; flex: none;
   }
-  .tab.active { background: var(--bg); color: var(--text); box-shadow: 0 1px 3px rgba(0,0,0,.12); }
+  .summary {
+    display: flex; align-items: center; gap: 16px; background: var(--card);
+    border-radius: 22px; padding: 16px 18px; margin-bottom: 14px;
+  }
+  .ring { width: 72px; height: 72px; flex: none; }
+  .ring-bg { fill: none; stroke: var(--sep); stroke-width: 7; }
+  .ring-fg {
+    fill: none; stroke: var(--accent); stroke-width: 7; stroke-linecap: round;
+    stroke-dasharray: 188.5; stroke-dashoffset: 188.5;
+    transition: stroke-dashoffset .55s cubic-bezier(.3, .7, .2, 1), stroke .3s;
+  }
+  .summary.complete .ring-fg { stroke: var(--ok); }
+  .ring text { font-size: 15px; font-weight: 700; fill: var(--text); }
+  .s-title { font-weight: 700; font-size: 17px; }
+  .s-sub { color: var(--hint); font-size: 14px; margin-top: 2px; }
 
-  .add { display: flex; gap: 8px; margin-bottom: 14px; }
-  .add input {
-    flex: 1; min-width: 0; border: 0; outline: 0; background: var(--card); color: var(--text);
-    padding: 12px 14px; border-radius: 12px; font-size: 16px;
+  /* ---------- Поиск и фильтры ---------- */
+  .search input {
+    width: 100%; border: 0; outline: 0; background: var(--card); color: var(--text);
+    border-radius: 12px; padding: 11px 14px; font: inherit; font-size: 16px;
   }
-  .add button {
-    border: 0; background: var(--btn); color: var(--btn-text);
-    padding: 0 18px; border-radius: 12px; font-size: 22px; cursor: pointer;
+  .chips { display: flex; gap: 8px; overflow-x: auto; margin: 10px -16px 0; padding: 0 16px 2px; scrollbar-width: none; }
+  .chips::-webkit-scrollbar { display: none; }
+  .chip {
+    flex: none; border: 0; background: var(--card); border-radius: 999px; padding: 7px 13px;
+    font-size: 14px; display: inline-flex; gap: 6px; align-items: center;
   }
+  .chip.on { background: var(--accent); color: var(--accent-text); }
+  .chip .n { opacity: .7; font-size: 12.5px; }
 
-  .item {
-    display: flex; align-items: center; gap: 12px;
-    background: var(--card); border-radius: 14px; padding: 12px 14px; margin-bottom: 8px;
+  #list { position: relative; margin-top: 12px; }
+  .empty { text-align: center; color: var(--hint); padding: 36px 16px; }
+  .empty b { display: block; color: var(--text); font-size: 17px; margin-bottom: 4px; }
+
+  /* ---------- Строки: свайпы и перетаскивание ---------- */
+  .row {
+    position: relative; border-radius: 16px; margin-bottom: 8px; overflow: hidden;
+    touch-action: pan-y; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none;
   }
+  .row-bg {
+    position: absolute; inset: 0; display: flex; align-items: center; justify-content: space-between;
+    padding: 0 20px; font-weight: 600; font-size: 14px; color: #fff;
+  }
+  .row-bg span { opacity: 0; }
+  .row.sw-r .row-bg { background: var(--ok); }
+  .row.sw-l .row-bg { background: var(--danger); }
+  .row.sw-r .bg-l, .row.sw-l .bg-r { opacity: 1; }
+  .row-fg {
+    position: relative; display: flex; gap: 12px; align-items: flex-start;
+    background: var(--card); padding: 12px 14px; transition: transform .2s ease;
+  }
+  .row.moving .row-fg { transition: none; }
+  .row.dragging { z-index: 5; box-shadow: 0 10px 28px rgba(0, 0, 0, .28); }
+  .row.dragging .row-fg { transition: none; }
+  .row-fg.off { opacity: .65; }
+  .body { flex: 1; min-width: 0; }
+  .title { word-break: break-word; }
+  .title .t {
+    background: linear-gradient(currentColor, currentColor) no-repeat 0 58% / 0% 1.5px;
+    -webkit-box-decoration-break: clone; box-decoration-break: clone;
+    transition: background-size .3s ease, color .3s;
+  }
+  .done .title .t { background-size: 100% 1.5px; color: var(--hint); }
+
   .check {
-    width: 26px; height: 26px; flex: none; border-radius: 50%;
-    border: 2px solid var(--hint); background: transparent; cursor: pointer;
-    display: grid; place-items: center; color: #fff; font-size: 15px; padding: 0;
+    width: 26px; height: 26px; flex: none; border-radius: 50%; margin-top: 1px; padding: 0;
+    border: 2px solid var(--hint); background: transparent; display: grid; place-items: center;
+    transition: background .18s, border-color .18s;
   }
-  .check.on { background: var(--ok); border-color: var(--ok); }
-  .title { flex: 1; min-width: 0; word-break: break-word; }
-  .done .title { text-decoration: line-through; color: var(--hint); }
-  .del { border: 0; background: transparent; color: var(--hint); font-size: 20px; cursor: pointer; padding: 4px 6px; }
-  .del:active { color: var(--danger); }
+  .check svg { width: 16px; height: 16px; fill: none; stroke: #fff; stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; opacity: 0; }
+  .check.on { background: var(--cc, var(--ok)); border-color: var(--cc, var(--ok)); }
+  .check.on svg { opacity: 1; }
+  .check.ink svg { stroke: #0b0b0b; }
+  .check.on.anim { animation: pop .3s; }
+  .check.on.anim svg path { stroke-dasharray: 24; stroke-dashoffset: 24; animation: draw .28s .05s forwards; }
+  @keyframes pop { 0% { transform: scale(.8); } 60% { transform: scale(1.18); } 100% { transform: scale(1); } }
+  @keyframes draw { to { stroke-dashoffset: 0; } }
 
-  .habit-body { flex: 1; min-width: 0; }
-  .meta { display: flex; align-items: center; gap: 10px; margin-top: 6px; }
-  .dots { display: flex; gap: 4px; }
-  .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--hint); opacity: .25; }
-  .dot.on { background: var(--ok); opacity: 1; }
-  .streak { font-size: 13px; color: var(--hint); }
+  .meta { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; margin-top: 5px; font-size: 13px; color: var(--hint); }
+  .pill {
+    display: inline-flex; align-items: center; border: 0; padding: 2px 9px; border-radius: 999px;
+    background: rgba(128, 128, 128, .15); color: var(--hint); font-size: 12.5px;
+  }
+  .pill.today { background: rgba(36, 129, 204, .16); color: var(--accent); }
+  .pill.over, .pill.p2 { background: rgba(229, 72, 77, .15); color: var(--danger); }
+  .pill.p1 { background: rgba(245, 165, 36, .18); color: #b97800; }
+  .pill.tag.on { background: var(--accent); color: var(--accent-text); }
+  .overdue .title .t { color: var(--text); }
 
-  .empty { text-align: center; color: var(--hint); padding: 40px 0; }
-  .progress { height: 6px; background: var(--card); border-radius: 3px; overflow: hidden; margin-bottom: 14px; }
-  .progress > div { height: 100%; background: var(--ok); width: 0; transition: width .25s; }
-  .hidden { display: none; }
+  .subs { display: flex; flex-direction: column; gap: 7px; margin-top: 9px; }
+  .sub { display: flex; align-items: center; gap: 9px; font-size: 14.5px; }
+  .sub-check {
+    width: 20px; height: 20px; flex: none; border-radius: 50%; padding: 0;
+    border: 1.5px solid var(--hint); background: none; display: grid; place-items: center;
+  }
+  .sub-check svg { width: 12px; height: 12px; stroke: #fff; stroke-width: 3.5; fill: none; stroke-linecap: round; stroke-linejoin: round; opacity: 0; }
+  .sub-check.on { background: var(--ok); border-color: var(--ok); }
+  .sub-check.on svg { opacity: 1; }
+  .sub.done span { color: var(--hint); text-decoration: line-through; }
+
+  .emoji {
+    width: 40px; height: 40px; border-radius: 12px; display: grid; place-items: center; flex: none; font-size: 21px;
+    background: rgba(128, 128, 128, .14);
+    background: color-mix(in srgb, var(--cc) 17%, transparent);
+  }
+  .dots { display: flex; gap: 5px; margin-top: 9px; }
+  .dot { width: 9px; height: 9px; border-radius: 50%; background: rgba(128, 128, 128, .3); }
+  .dot.d { background: var(--cc); }
+  .dot.r { transform: scale(.55); opacity: .55; }
+  .dot.t { outline: 2px solid var(--cc); outline-offset: 1px; }
+  .streak { color: var(--text); font-weight: 600; }
+
+  /* ---------- Нижняя навигация ---------- */
+  nav {
+    position: fixed; left: 0; right: 0; bottom: 0; z-index: 20; display: flex;
+    background: var(--bg); border-top: 1px solid var(--sep);
+    padding: 6px 8px calc(6px + env(safe-area-inset-bottom));
+  }
+  nav button {
+    flex: 1; border: 0; background: none; color: var(--hint); display: flex; flex-direction: column;
+    align-items: center; gap: 2px; font-size: 11.5px; padding: 4px 0;
+  }
+  nav button.on { color: var(--accent); }
+  nav svg { width: 24px; height: 24px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+
+  /* ---------- Запасная кнопка (вне Telegram) ---------- */
+  .fab {
+    position: fixed; left: 16px; right: 16px; bottom: calc(68px + env(safe-area-inset-bottom)); z-index: 30;
+    border: 0; border-radius: 14px; padding: 14px; background: var(--accent); color: var(--accent-text);
+    font-weight: 600; font-size: 16px; box-shadow: 0 6px 20px rgba(0, 0, 0, .22);
+  }
+  .fab.over { bottom: calc(16px + env(safe-area-inset-bottom)); z-index: 60; }
+  .fab:disabled { opacity: .5; }
+  body.in-tg .fab { display: none; }
+
+  /* ---------- Нижняя панель добавления ---------- */
+  .sheet-wrap { position: fixed; inset: 0; z-index: 50; display: none; }
+  .sheet-wrap.open { display: block; }
+  .backdrop { position: absolute; inset: 0; background: rgba(0, 0, 0, .42); opacity: 0; transition: opacity .2s; }
+  .sheet-wrap.show .backdrop { opacity: 1; }
+  .sheet {
+    position: absolute; left: 0; right: 0; bottom: 0; max-height: 92vh; overflow-y: auto;
+    background: var(--bg); border-radius: 24px 24px 0 0;
+    padding: 8px 16px calc(22px + env(safe-area-inset-bottom));
+    transform: translateY(100%); transition: transform .26s cubic-bezier(.2, .8, .2, 1);
+  }
+  body:not(.in-tg) .sheet { padding-bottom: calc(86px + env(safe-area-inset-bottom)); }
+  .sheet-wrap.show .sheet { transform: none; }
+  .grab { width: 38px; height: 4px; border-radius: 2px; background: rgba(128, 128, 128, .4); margin: 4px auto 12px; }
+  .sheet h2 { font-size: 19px; display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
+  .x { border: 0; background: var(--card); color: var(--hint); width: 30px; height: 30px; border-radius: 50%; font-size: 15px; }
+  .fld { display: block; margin-bottom: 16px; }
+  .fld > span, .fld > .lbl { display: block; font-size: 13px; color: var(--hint); margin-bottom: 6px; }
+  .fld input[type=text], .fld input[type=date], .fld textarea, .setting input[type=time] {
+    width: 100%; border: 0; outline: 0; background: var(--card); color: var(--text);
+    border-radius: 12px; padding: 12px 14px; font: inherit; font-size: 16px;
+  }
+  .fld textarea { resize: none; }
+  .quick { display: flex; gap: 8px; margin-top: 8px; }
+  .seg { display: flex; background: var(--card); border-radius: 12px; padding: 3px; }
+  .seg button { flex: 1; border: 0; background: none; color: var(--hint); padding: 9px 4px; border-radius: 10px; font-size: 13.5px; font-weight: 600; }
+  .seg button.on { background: var(--bg); color: var(--text); box-shadow: 0 1px 3px rgba(0, 0, 0, .16); }
+  .emojis { display: grid; grid-template-columns: repeat(6, 1fr); gap: 8px; }
+  .emojis button { aspect-ratio: 1; border: 2px solid transparent; border-radius: 12px; background: var(--card); font-size: 22px; padding: 0; }
+  .emojis button.on { border-color: var(--accent); }
+  .swatches { display: flex; gap: 12px; flex-wrap: wrap; }
+  .swatch { width: 32px; height: 32px; border-radius: 50%; border: 3px solid var(--bg); background: var(--sc); box-shadow: 0 0 0 2px transparent; padding: 0; }
+  .swatch.on { box-shadow: 0 0 0 2px var(--sc); }
+  .wd { display: flex; gap: 6px; margin-top: 10px; }
+  .wd button { flex: 1; border: 0; border-radius: 10px; padding: 9px 0; background: var(--card); font-size: 13px; font-weight: 600; }
+  .wd button.on { background: var(--accent); color: var(--accent-text); }
+  .stepper { display: flex; align-items: center; justify-content: center; gap: 16px; margin-top: 10px; }
+  .stepper button { width: 38px; height: 38px; border-radius: 50%; border: 0; background: var(--card); font-size: 20px; }
+  .stepper b { min-width: 130px; text-align: center; }
+  .hint { font-size: 13px; color: var(--hint); margin-top: 8px; }
+  .link-danger { border: 0; background: none; color: var(--danger); font-size: 15px; padding: 8px 0; }
+
+  /* ---------- Статистика ---------- */
+  .range { margin-bottom: 12px; }
+  .tiles { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 12px; }
+  .tile { background: var(--card); border-radius: 16px; padding: 14px; }
+  .tile .lbl { font-size: 13px; color: var(--hint); }
+  .tile .val { font-size: 28px; font-weight: 700; margin-top: 4px; line-height: 1.1; }
+  .tile .sub { font-size: 13px; color: var(--hint); margin-top: 4px; }
+  .card { background: var(--card); border-radius: 18px; padding: 14px; margin-bottom: 12px; }
+  .card h3 { font-size: 16px; }
+  .card .hd { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; margin-bottom: 10px; }
+  .card .cap { font-size: 13px; color: var(--hint); }
+  .chart { position: relative; }
+  .chart svg { display: block; width: 100%; height: auto; touch-action: pan-y; outline-offset: 4px; }
+  .grid { stroke: var(--sep); stroke-width: 1; }
+  .base { stroke: rgba(128, 128, 128, .5); stroke-width: 1; }
+  .ax { fill: var(--hint); font-size: 10px; }
+  .vl { fill: var(--text); font-size: 11px; font-weight: 600; }
+  .bar { fill: var(--accent); transition: opacity .12s; }
+  .bar.dim { opacity: .4; }
+  .tip {
+    position: absolute; pointer-events: none; background: var(--bg); color: var(--text); border-radius: 10px;
+    padding: 6px 10px; font-size: 12.5px; box-shadow: 0 4px 18px rgba(0, 0, 0, .22);
+    transform: translate(-50%, -100%); white-space: nowrap; opacity: 0; transition: opacity .12s; z-index: 2;
+  }
+  .tip b { display: block; font-size: 15px; }
+  .tip span { color: var(--hint); }
+  .hb { display: flex; align-items: center; gap: 10px; margin: 11px 0; }
+  .hb .nm { flex: 0 0 42%; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 14px; }
+  .hb .bar-t { flex: 1; height: 8px; border-radius: 4px; background: rgba(128, 128, 128, .2); overflow: hidden; }
+  .hb .bar-t i { display: block; height: 100%; border-radius: 4px; background: var(--accent); }
+  .hb .pc { flex: 0 0 42px; text-align: right; font-size: 14px; font-weight: 600; }
+  details.tbl { margin-top: 8px; font-size: 13px; }
+  details.tbl summary { color: var(--accent); cursor: pointer; padding: 4px 0; }
+  table.data { width: 100%; border-collapse: collapse; margin-top: 4px; }
+  table.data th, table.data td { padding: 5px 0; border-top: 1px solid var(--sep); text-align: left; font-weight: 400; }
+  table.data td:not(:first-child), table.data th:not(:first-child) { text-align: right; font-variant-numeric: tabular-nums; }
+  .best-day { font-size: 14px; color: var(--hint); margin: 4px 2px 12px; }
+  .best-day b { color: var(--text); }
+
+  /* ---------- Профиль ---------- */
+  .lv-top { display: flex; justify-content: space-between; align-items: baseline; }
+  .lv-n { font-size: 22px; font-weight: 700; }
+  .lv-xp { color: var(--hint); font-size: 14px; }
+  .meter { height: 8px; border-radius: 4px; background: rgba(128, 128, 128, .2); overflow: hidden; margin: 10px 0 8px; }
+  .meter i { display: block; height: 100%; border-radius: 4px; background: var(--accent); transition: width .4s; }
+  .setting { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 8px 0; }
+  .setting input[type=time] { width: auto; padding: 8px 12px; }
+  .switch { position: relative; width: 48px; height: 28px; border: 0; border-radius: 14px; background: rgba(128, 128, 128, .38); transition: background .2s; flex: none; padding: 0; }
+  .switch::after { content: ""; position: absolute; top: 3px; left: 3px; width: 22px; height: 22px; border-radius: 50%; background: #fff; transition: transform .2s; box-shadow: 0 1px 3px rgba(0, 0, 0, .3); }
+  .switch.on { background: var(--ok); }
+  .switch.on::after { transform: translateX(20px); }
+  .switch:disabled, .setting input:disabled { opacity: .45; }
+  .sec { font-size: 16px; margin: 18px 0 10px; display: flex; justify-content: space-between; align-items: baseline; }
+  .sec .count { font-size: 13px; color: var(--hint); font-weight: 400; }
+  .achs { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 16px; }
+  .ach { background: var(--card); border-radius: 16px; padding: 12px; opacity: .62; }
+  .ach.got { opacity: 1; }
+  .ach .ico { font-size: 28px; filter: grayscale(1); }
+  .ach.got .ico { filter: none; }
+  .ach .nm { font-weight: 600; font-size: 14.5px; margin-top: 4px; }
+  .ach .ds { font-size: 12.5px; color: var(--hint); margin-top: 2px; }
+  .ach .pr { font-size: 12.5px; margin-top: 6px; color: var(--hint); }
+  .ach.got .pr { color: var(--ok); }
+  .btn { display: block; width: 100%; border: 0; border-radius: 14px; padding: 13px; background: var(--card); color: var(--accent); font-weight: 600; font-size: 16px; margin-bottom: 12px; }
+
+  /* ---------- Уведомление и конфетти ---------- */
+  .toast {
+    position: fixed; left: 16px; right: 16px; bottom: calc(82px + env(safe-area-inset-bottom)); z-index: 70;
+    background: rgba(32, 32, 32, .94); color: #fff; border-radius: 14px; padding: 12px 14px;
+    display: flex; align-items: center; gap: 12px; font-size: 15px;
+    transform: translateY(16px); opacity: 0; pointer-events: none; transition: transform .2s, opacity .2s;
+  }
+  .toast.show { transform: none; opacity: 1; pointer-events: auto; }
+  .toast button { margin-left: auto; border: 0; background: none; color: #8ec5ff; font-weight: 600; padding: 4px; }
+  body:not(.in-tg) .toast { bottom: calc(136px + env(safe-area-inset-bottom)); }
+  #confetti { position: fixed; inset: 0; width: 100%; height: 100%; pointer-events: none; z-index: 80; }
+
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation: none !important; transition: none !important; }
+  }
 </style>
 </head>
 <body>
-  <h1 id="hello">Привет!</h1>
-  <div class="sub" id="today"></div>
+  <header>
+    <div>
+      <h1 id="hello">Привет!</h1>
+      <div class="date" id="today"></div>
+    </div>
+    <button class="lvl" id="lvl" data-tab="profile" aria-label="Уровень и достижения">Ур. 1</button>
+  </header>
 
-  <div class="tabs">
-    <button class="tab active" data-tab="tasks">Задачи</button>
-    <button class="tab" data-tab="habits">Привычки</button>
+  <section class="summary" id="summary" hidden>
+    <svg class="ring" viewBox="0 0 72 72" aria-hidden="true">
+      <circle class="ring-bg" cx="36" cy="36" r="30"/>
+      <circle class="ring-fg" id="ringFg" cx="36" cy="36" r="30" transform="rotate(-90 36 36)"/>
+      <text id="ringTxt" x="36" y="41" text-anchor="middle">0%</text>
+    </svg>
+    <div>
+      <div class="s-title" id="sTitle"></div>
+      <div class="s-sub" id="sSub"></div>
+    </div>
+  </section>
+
+  <section id="toolbar" hidden>
+    <div class="search"><input id="q" type="search" placeholder="Поиск по задачам" autocomplete="off" enterkeyhint="search"></div>
+    <div class="chips" id="filters"></div>
+    <div class="chips" id="tagChips" hidden></div>
+  </section>
+
+  <main id="list"></main>
+
+  <nav id="nav" aria-label="Разделы">
+    <button data-tab="tasks"><svg viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="4"/><path d="M9 12l2.2 2.2L15.5 10"/></svg>Задачи</button>
+    <button data-tab="habits"><svg viewBox="0 0 24 24"><path d="M12 3c.8 3.2 5 5 5 10a5 5 0 0 1-10 0c0-2 1-3.4 2.2-4.4.1 1.8.9 2.9 2 3.1C10.6 8.6 10.8 5.6 12 3z"/></svg>Привычки</button>
+    <button data-tab="stats"><svg viewBox="0 0 24 24"><path d="M5 20V11M12 20V4M19 20v-7"/></svg>Статистика</button>
+    <button data-tab="profile"><svg viewBox="0 0 24 24"><path d="M12 3.5l2.6 5.3 5.9.9-4.2 4.1 1 5.8L12 16.9l-5.3 2.7 1-5.8-4.2-4.1 5.9-.9z"/></svg>Профиль</button>
+  </nav>
+
+  <button class="fab" id="fab" hidden></button>
+
+  <div class="sheet-wrap" id="sheetWrap">
+    <div class="backdrop" id="backdrop"></div>
+    <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="sheetTitle">
+      <div class="grab"></div>
+      <h2><span id="sheetTitle"></span><button class="x" id="sheetX" aria-label="Закрыть">✕</button></h2>
+      <div id="sheetBody"></div>
+    </div>
   </div>
 
-  <div class="progress"><div id="bar"></div></div>
-
-  <form class="add" id="addForm">
-    <input id="addInput" type="text" maxlength="100" autocomplete="off" placeholder="Новая задача…">
-    <button type="submit" aria-label="Добавить">+</button>
-  </form>
-
-  <div id="list"></div>
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+  <canvas id="confetti" aria-hidden="true"></canvas>
 
 <script>
-const tg = window.Telegram && Telegram.WebApp;
-if (tg) { tg.ready(); tg.expand(); }
-
-// ---------- Хранилище: Telegram CloudStorage с запасным localStorage ----------
-const store = {
-  get(key) {
-    return new Promise(resolve => {
-      if (tg && tg.CloudStorage && tg.isVersionAtLeast && tg.isVersionAtLeast('6.9')) {
-        tg.CloudStorage.getItem(key, (err, val) => resolve(err ? null : val));
-      } else {
-        try { resolve(localStorage.getItem(key)); } catch (e) { resolve(null); }
-      }
-    });
-  },
-  set(key, value) {
-    return new Promise(resolve => {
-      if (tg && tg.CloudStorage && tg.isVersionAtLeast && tg.isVersionAtLeast('6.9')) {
-        tg.CloudStorage.setItem(key, value, () => resolve());
-      } else {
-        try { localStorage.setItem(key, value); } catch (e) {}
-        resolve();
-      }
-    });
-  }
-};
-
-// ---------- Состояние ----------
-let state = { tasks: [], habits: [] };
-let tab = 'tasks';
+// ======================================================================
+// Логика без обращения к DOM и Telegram (её же проверяют автотесты)
+// ======================================================================
+// <logic>
+const PALETTE_N = 8;
+const WD_LABELS = { 0: 'Вс', 1: 'Пн', 2: 'Вт', 3: 'Ср', 4: 'Чт', 5: 'Пт', 6: 'Сб' };
+const WD_ORDER = [1, 2, 3, 4, 5, 6, 0];
+const WD_NAMES = ['воскресенье', 'понедельник', 'вторник', 'среда', 'четверг', 'пятница', 'суббота'];
+const DAY_RE = /^\d{4}-\d{2}-\d{2}$/;
 
 const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
-const dayKey = (d = new Date()) => {
-  const z = n => String(n).padStart(2, '0');
-  return `${d.getFullYear()}-${z(d.getMonth() + 1)}-${z(d.getDate())}`;
+const pad = n => String(n).padStart(2, '0');
+const dayKey = (d = new Date()) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+const parseKey = k => { const [y, m, d] = k.split('-').map(Number); return new Date(y, m - 1, d); };
+const addDays = (k, n) => { const d = parseKey(k); d.setDate(d.getDate() + n); return dayKey(d); };
+const weekdayOf = k => parseKey(k).getDay();
+const weekStartKey = k => { const d = parseKey(k); d.setDate(d.getDate() - ((d.getDay() + 6) % 7)); return dayKey(d); };
+const diffDays = (a, b) => Math.round((parseKey(a) - parseKey(b)) / 86400000);
+const plural = (n, one, few, many) => {
+  const m10 = n % 10, m100 = n % 100;
+  if (m10 === 1 && m100 !== 11) return one;
+  if (m10 >= 2 && m10 <= 4 && (m100 < 12 || m100 > 14)) return few;
+  return many;
 };
-const shiftDay = n => { const d = new Date(); d.setDate(d.getDate() + n); return dayKey(d); };
 
-async function load() {
-  const raw = await store.get('state');
-  if (raw) { try { state = Object.assign(state, JSON.parse(raw)); } catch (e) {} }
+function normalize(raw, today) {
+  today = today || dayKey();
+  const s = raw && typeof raw === 'object' ? raw : {};
+  const str = (v, max) => String(v == null ? '' : v).slice(0, max);
+  const num = v => (Number.isFinite(v) ? Math.max(0, v) : 0);
+
+  const tasks = (Array.isArray(s.tasks) ? s.tasks : []).filter(t => t && typeof t === 'object').map(t => ({
+    id: str(t.id || uid(), 24),
+    title: str(t.title, 100),
+    done: !!t.done,
+    due: DAY_RE.test(t.due || '') ? t.due : null,
+    prio: t.prio === 1 || t.prio === 2 ? t.prio : 0,
+    tags: Array.isArray(t.tags) ? t.tags.map(x => str(x, 20)).filter(Boolean).slice(0, 6) : [],
+    subs: Array.isArray(t.subs)
+      ? t.subs.filter(x => x && typeof x === 'object').map(x => ({ id: str(x.id || uid(), 24), title: str(x.title, 100), done: !!x.done })).filter(x => x.title).slice(0, 20)
+      : [],
+    doneAt: DAY_RE.test(t.doneAt || '') ? t.doneAt : null,
+    onTime: !!t.onTime
+  })).filter(t => t.title);
+
+  const habits = (Array.isArray(s.habits) ? s.habits : []).filter(h => h && typeof h === 'object').map((h, i) => {
+    const sch = h.schedule && typeof h.schedule === 'object' ? h.schedule : {};
+    const type = ['daily', 'days', 'weekly'].includes(sch.type) ? sch.type : 'daily';
+    const days = Array.isArray(h.days) ? [...new Set(h.days.filter(d => DAY_RE.test(d)))].sort().slice(-400) : [];
+    return {
+      id: str(h.id || uid(), 24),
+      title: str(h.title, 100),
+      emoji: str(h.emoji || '✅', 8),
+      color: Number.isInteger(h.color) && h.color >= 0 && h.color < PALETTE_N ? h.color : i % PALETTE_N,
+      schedule: {
+        type,
+        days: type === 'days' && Array.isArray(sch.days) ? sch.days.filter(d => Number.isInteger(d) && d >= 0 && d <= 6) : [],
+        perWeek: Math.min(7, Math.max(1, (sch.perWeek | 0) || 3))
+      },
+      days,
+      createdAt: DAY_RE.test(h.createdAt || '') ? h.createdAt : (days[0] || today)
+    };
+  }).filter(h => h.title);
+
+  const set = s.settings && typeof s.settings === 'object' ? s.settings : {};
+  const settings = {
+    remind: !!set.remind,
+    time: /^([01]\d|2[0-3]):[0-5]\d$/.test(set.time || '') ? set.time : '20:00',
+    tzOffset: Number.isFinite(set.tzOffset) ? Math.trunc(set.tzOffset) : 0,
+    sort: ['manual', 'due', 'prio'].includes(set.sort) ? set.sort : 'manual'
+  };
+
+  const old = s.stats && typeof s.stats === 'object' ? s.stats : null;
+  const stats = {
+    habitChecks: num(old && old.habitChecks), tasksDone: num(old && old.tasksDone), xp: num(old && old.xp),
+    bestStreak: num(old && old.bestStreak), perfectDays: num(old && old.perfectDays),
+    perfectDate: old && DAY_RE.test(old.perfectDate || '') ? old.perfectDate : null,
+    earlyBird: num(old && old.earlyBird), onTime: num(old && old.onTime)
+  };
+  if (!old) { // данные первой версии: восстанавливаем счётчики из того, что есть
+    stats.habitChecks = habits.reduce((a, h) => a + h.days.length, 0);
+    stats.tasksDone = tasks.filter(t => t.done).length;
+    stats.xp = stats.habitChecks * 10 + stats.tasksDone * 5;
+  }
+  const ach = (Array.isArray(s.ach) ? s.ach : []).filter(a => a && typeof a.id === 'string')
+    .map(a => ({ id: a.id, at: DAY_RE.test(a.at || '') ? a.at : today }));
+
+  return { v: 2, updatedAt: Number.isFinite(s.updatedAt) ? s.updatedAt : 0, tasks, habits, settings, stats, ach };
 }
-function save() { return store.set('state', JSON.stringify(state)); }
 
-// ---------- Привычки: серия дней ----------
-function streak(habit) {
-  const set = new Set(habit.days);
-  let n = 0, i = set.has(dayKey()) ? 0 : 1; // если сегодня ещё не отмечено, серия считается со вчера
-  while (set.has(shiftDay(-i))) { n++; i++; }
-  return n;
+const isScheduled = (sch, k) => (sch.type === 'days' ? sch.days.includes(weekdayOf(k)) : true);
+
+function weekCount(h, k) {
+  const ws = weekStartKey(k), we = addDays(ws, 6);
+  return h.days.filter(d => d >= ws && d <= we).length;
 }
 
-// ---------- Отрисовка ----------
+// Серия: для «каждый день» и «по дням» считается в днях (нерабочие дни её не рвут),
+// для «N раз в неделю» считается в неделях, где цель выполнена
+function habitStreak(h, today) {
+  const sch = h.schedule;
+  if (sch.type === 'weekly') {
+    let ws = weekStartKey(today), n = 0;
+    if (weekCount(h, ws) >= sch.perWeek) n++;
+    ws = addDays(ws, -7);
+    for (let i = 0; i < 120; i++) {
+      if (weekCount(h, ws) >= sch.perWeek) { n++; ws = addDays(ws, -7); } else break;
+    }
+    return { n, unit: 'нед.' };
+  }
+  const set = new Set(h.days);
+  let n = 0, d = today;
+  for (let i = 0; i < 800; i++) {
+    if (set.has(d)) n++;
+    else if (isScheduled(sch, d) && d !== today) break;
+    d = addDays(d, -1);
+  }
+  return { n, unit: 'дн.' };
+}
+const streakDays = (h, today) => { const s = habitStreak(h, today); return s.unit === 'нед.' ? s.n * 7 : s.n; };
+const bestStreakOf = (habits, today) => habits.reduce((m, h) => Math.max(m, streakDays(h, today)), 0);
+
+function todayHabitSummary(habits, today) {
+  let total = 0, done = 0;
+  for (const h of habits) {
+    const isDone = h.days.includes(today), sch = h.schedule;
+    const relevant = sch.type === 'weekly' ? (isDone || weekCount(h, today) < sch.perWeek) : isScheduled(sch, today);
+    if (relevant) { total++; if (isDone) done++; }
+  }
+  return { total, done };
+}
+
+function tasksSummary(tasks, today) {
+  const rel = tasks.filter(t => !t.done || t.doneAt === today);
+  return { total: rel.length, done: rel.filter(t => t.done).length };
+}
+
+function taskCounts(tasks, today) {
+  return {
+    today: tasks.filter(t => !t.done && t.due && t.due <= today).length,
+    upcoming: tasks.filter(t => !t.done && t.due && t.due > today).length,
+    all: tasks.length,
+    done: tasks.filter(t => t.done).length
+  };
+}
+
+function filterTasks(tasks, o, today) {
+  const q = (o.q || '').trim().toLowerCase();
+  let list = tasks.filter(t => {
+    if (o.filter === 'today' && !(!t.done && t.due && t.due <= today)) return false;
+    if (o.filter === 'upcoming' && !(!t.done && t.due && t.due > today)) return false;
+    if (o.filter === 'done' && !t.done) return false;
+    if (o.tag && !t.tags.includes(o.tag)) return false;
+    if (q) {
+      const hay = (t.title + ' ' + t.tags.join(' ') + ' ' + t.subs.map(s => s.title).join(' ')).toLowerCase();
+      if (!hay.includes(q)) return false;
+    }
+    return true;
+  });
+  const dueOf = t => t.due || '9999-99-99';
+  if (o.sort === 'due') list = [...list].sort((a, b) => (a.done - b.done) || (dueOf(a) < dueOf(b) ? -1 : dueOf(a) > dueOf(b) ? 1 : 0));
+  else if (o.sort === 'prio') list = [...list].sort((a, b) => (a.done - b.done) || (b.prio - a.prio));
+  return list;
+}
+
+function periodStats(st, n, today) {
+  const dates = [];
+  for (let i = n - 1; i >= 0; i--) dates.push(addDays(today, -i));
+  const first = dates[0];
+  const perDay = dates.map(date => ({ date, done: 0, possible: 0 }));
+  const wd = [0, 0, 0, 0, 0, 0, 0];
+  let sumDone = 0, sumPossible = 0, checks = 0;
+
+  const perHabit = st.habits.map(h => {
+    const sch = h.schedule, set = new Set(h.days);
+    let done = 0, possible = 0, active = 0;
+    dates.forEach((d, i) => {
+      if (set.has(d)) { done++; perDay[i].done++; wd[weekdayOf(d)]++; }
+      if (d >= h.createdAt) {
+        active++;
+        if (sch.type !== 'weekly' && isScheduled(sch, d)) { possible++; perDay[i].possible++; }
+      }
+    });
+    if (sch.type === 'weekly') possible = active ? Math.max(1, Math.round(sch.perWeek * active / 7)) : 0;
+    const counted = Math.min(done, possible);
+    sumDone += counted; sumPossible += possible; checks += done;
+    return { h, done, possible, pct: possible ? counted / possible : 0 };
+  });
+
+  const doneTasks = st.tasks.filter(t => t.doneAt && t.doneAt >= first && t.doneAt <= today);
+  doneTasks.forEach(t => { wd[weekdayOf(t.doneAt)]++; });
+  let top = -1, topV = 0;
+  wd.forEach((v, i) => { if (v > topV) { topV = v; top = i; } });
+
+  return {
+    dates, perDay, perHabit,
+    pct: sumPossible ? sumDone / sumPossible : null,
+    checks, tasksDone: doneTasks.length, topWeekday: top
+  };
+}
+
+const levelOf = xp => Math.floor(Math.sqrt(Math.max(0, xp) / 40)) + 1;
+const levelStart = l => 40 * (l - 1) * (l - 1);
+
+const ACHIEVEMENTS = [
+  { id: 'first',    icon: '🌱', title: 'Первый шаг',           desc: 'Отметьте привычку впервые',             goal: 1,   value: s => s.stats.habitChecks },
+  { id: 'checks50', icon: '💪', title: 'Разгон',               desc: '50 отметок привычек',                    goal: 50,  value: s => s.stats.habitChecks },
+  { id: 'checks250', icon: '🚀', title: 'На скорости',         desc: '250 отметок привычек',                   goal: 250, value: s => s.stats.habitChecks },
+  { id: 'streak7',  icon: '🔥', title: 'Неделя без пропусков', desc: 'Серия 7 дней подряд',                    goal: 7,   value: s => s.stats.bestStreak },
+  { id: 'streak30', icon: '🏔️', title: 'Месяц стойкости',     desc: 'Серия 30 дней подряд',                   goal: 30,  value: s => s.stats.bestStreak },
+  { id: 'tasks10',  icon: '✅', title: 'Закрываю дела',        desc: '10 выполненных задач',                   goal: 10,  value: s => s.stats.tasksDone },
+  { id: 'tasks50',  icon: '🗂️', title: 'Мастер задач',        desc: '50 выполненных задач',                   goal: 50,  value: s => s.stats.tasksDone },
+  { id: 'perfect',  icon: '🌟', title: 'Идеальный день',       desc: 'Отметьте все привычки дня (их от трёх)', goal: 1,   value: s => s.stats.perfectDays },
+  { id: 'early',    icon: '🌅', title: 'Жаворонок',            desc: 'Отметьте привычку до 8 утра',            goal: 1,   value: s => s.stats.earlyBird },
+  { id: 'planner',  icon: '🎯', title: 'Планировщик',          desc: '5 задач выполнено в срок',               goal: 5,   value: s => s.stats.onTime }
+];
+
+function unlockNew(st, today) {
+  const have = new Set(st.ach.map(a => a.id));
+  const fresh = [];
+  for (const a of ACHIEVEMENTS) {
+    if (!have.has(a.id) && a.value(st) >= a.goal) {
+      st.ach.push({ id: a.id, at: today });
+      st.stats.xp += 25;
+      fresh.push(a);
+    }
+  }
+  return fresh;
+}
+
+function fmtDue(due, today) {
+  const diff = diffDays(due, today);
+  if (diff === 0) return { text: 'Сегодня', cls: 'today' };
+  if (diff === 1) return { text: 'Завтра', cls: '' };
+  if (diff === -1) return { text: 'Вчера', cls: 'over' };
+  if (diff < 0) return { text: `Просрочено на ${-diff} ${plural(-diff, 'день', 'дня', 'дней')}`, cls: 'over' };
+  return { text: parseKey(due).toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' }), cls: '' };
+}
+
+function scheduleLabel(sch) {
+  if (sch.type === 'weekly') return `${sch.perWeek} ${plural(sch.perWeek, 'раз', 'раза', 'раз')} в неделю`;
+  if (sch.type === 'days' && sch.days.length < 7) return WD_ORDER.filter(d => sch.days.includes(d)).map(d => WD_LABELS[d]).join(' ');
+  return 'Каждый день';
+}
+// </logic>
+
+// ======================================================================
+// Telegram и хранение
+// ======================================================================
 const $ = id => document.getElementById(id);
-const esc = s => s.replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
-function render() {
-  const list = $('list');
-  const input = $('addInput');
-  input.placeholder = tab === 'tasks' ? 'Новая задача…' : 'Новая привычка…';
-  document.querySelectorAll('.tab').forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
+const tg = window.Telegram && window.Telegram.WebApp;
+const inTg = !!(tg && tg.initData);
+if (tg) { try { tg.ready(); tg.expand(); } catch (e) {} }
+if (inTg) document.body.classList.add('in-tg');
 
-  let html = '', done = 0, total = 0;
+function applyTheme() { if (tg && tg.colorScheme) document.documentElement.dataset.theme = tg.colorScheme; }
+applyTheme();
+if (tg && tg.onEvent) { try { tg.onEvent('themeChanged', applyTheme); } catch (e) {} }
 
+function hap(kind) {
+  try {
+    if (!tg || !tg.HapticFeedback) return;
+    if (kind === 'success' || kind === 'error' || kind === 'warning') tg.HapticFeedback.notificationOccurred(kind);
+    else if (kind === 'select') tg.HapticFeedback.selectionChanged();
+    else tg.HapticFeedback.impactOccurred(kind || 'light');
+  } catch (e) {}
+}
+
+let state = normalize(null);
+const ui = { filter: 'all', q: '', tag: null, range: 7, anim: null };
+let tab = 'tasks';
+
+// --- локальное хранилище: Telegram CloudStorage (кусками по 3000 символов) или localStorage ---
+const LS_KEY = 'tracker.state.v2';
+const CHUNK = 3000;
+const asciiJson = s => s.replace(/[\u007f-￿]/g, c => '\\u' + c.charCodeAt(0).toString(16).padStart(4, '0'));
+const cloudOk = () => !!(inTg && tg.CloudStorage && tg.isVersionAtLeast && tg.isVersionAtLeast('6.9'));
+const cs = {
+  get: keys => new Promise(res => tg.CloudStorage.getItems(keys, (err, v) => res(err ? {} : (v || {})))),
+  set: (k, v) => new Promise(res => tg.CloudStorage.setItem(k, v, () => res())),
+  del: keys => new Promise(res => (keys.length ? tg.CloudStorage.removeItems(keys, () => res()) : res()))
+};
+let cloudParts = 0;
+let saving = Promise.resolve();
+
+async function localLoad() {
+  try {
+    if (cloudOk()) {
+      const meta = await cs.get(['sn']);
+      const n = parseInt(meta.sn, 10);
+      if (n > 0) {
+        const keys = Array.from({ length: n }, (_, i) => 's' + i);
+        const parts = await cs.get(keys);
+        cloudParts = n;
+        return JSON.parse(keys.map(k => parts[k] || '').join(''));
+      }
+      const legacy = await cs.get(['state']); // формат первой версии
+      return legacy.state ? JSON.parse(legacy.state) : null;
+    }
+    const raw = localStorage.getItem(LS_KEY) || localStorage.getItem('state');
+    return raw ? JSON.parse(raw) : null;
+  } catch (e) { return null; }
+}
+
+function localSave() {
+  const plain = JSON.stringify(state);
+  saving = saving.then(async () => {
+    try {
+      if (cloudOk()) {
+        const json = asciiJson(plain), parts = [];
+        for (let i = 0; i < json.length; i += CHUNK) parts.push(json.slice(i, i + CHUNK));
+        await Promise.all(parts.map((p, i) => cs.set('s' + i, p)));
+        await cs.set('sn', String(parts.length));
+        const stale = [];
+        for (let i = parts.length; i < cloudParts; i++) stale.push('s' + i);
+        cloudParts = parts.length;
+        await cs.del(stale);
+      } else {
+        localStorage.setItem(LS_KEY, plain);
+      }
+    } catch (e) {}
+  });
+}
+
+// --- синхронизация с сервером (bot.py): напоминания и данные между устройствами ---
+const API_BASE = ((document.querySelector('meta[name="api-base"]') || {}).content || '').replace(/\/+$/, '');
+const sync = { available: inTg, ok: false, bot: '', timer: null, busy: false, dirty: false };
+
+function api(method, body) {
+  const payload = body ? JSON.stringify(body) : undefined;
+  return fetch(API_BASE + '/api/state', {
+    method,
+    headers: Object.assign({ 'X-Telegram-Init-Data': tg.initData }, payload ? { 'Content-Type': 'application/json' } : {}),
+    body: payload,
+    keepalive: !!payload && payload.length < 60000
+  });
+}
+
+function adopt(remote) {
+  state = remote;
+  const changed = reconcile();
+  localSave();
+  if (changed) { touch(); scheduleSync(); }
+  renderAll();
+}
+
+async function pull() {
+  if (!sync.available) return;
+  try {
+    const res = await api('GET');
+    const isJson = (res.headers.get('content-type') || '').includes('json');
+    if (res.status === 404 || (res.ok && !isJson)) { sync.available = false; sync.ok = false; return; }
+    if (!res.ok) throw new Error('http ' + res.status);
+    const data = await res.json();
+    sync.ok = true;
+    sync.bot = data.botUsername || sync.bot;
+    if (data.state) {
+      const remote = normalize(data.state);
+      if (remote.updatedAt > state.updatedAt) adopt(remote);
+      else if (remote.updatedAt < state.updatedAt) push();
+    } else if (state.updatedAt > 0) {
+      push();
+    }
+  } catch (e) { sync.ok = false; }
+  refreshProfile();
+}
+
+function scheduleSync() {
+  if (!sync.available) return;
+  clearTimeout(sync.timer);
+  sync.timer = setTimeout(push, 700);
+}
+
+async function push() {
+  if (!sync.available) return;
+  if (sync.busy) { sync.dirty = true; return; }
+  sync.busy = true; sync.dirty = false;
+  try {
+    const res = await api('PUT', { state });
+    if (res.status === 409) {
+      const data = await res.json();
+      sync.ok = true;
+      adopt(normalize(data.state));
+    } else if (res.status === 404) { sync.available = false; sync.ok = false; }
+    else sync.ok = res.ok;
+  } catch (e) { sync.ok = false; }
+  sync.busy = false;
+  if (sync.dirty) scheduleSync();
+  refreshProfile();
+}
+
+function refreshProfile() {
+  if (tab !== 'profile') return;
+  if (document.activeElement && document.activeElement.id === 'remindTime') return;
+  renderList();
+}
+
+// ======================================================================
+// Изменение данных
+// ======================================================================
+function touch() {
+  state.updatedAt = Math.max(Date.now(), (state.updatedAt || 0) + 1);
+  state.settings.tzOffset = -new Date().getTimezoneOffset();
+}
+function commit(opts) {
+  touch(); localSave(); scheduleSync();
+  if (!opts || opts.render !== false) renderAll();
+}
+
+function reconcile() {
+  const today = dayKey();
+  state.stats.bestStreak = Math.max(state.stats.bestStreak, bestStreakOf(state.habits, today));
+  const fresh = unlockNew(state, today);
+  if (fresh.length) announce(fresh);
+  return fresh.length > 0;
+}
+
+function announce(list) {
+  hap('success');
+  toast('🏆 ' + (list.length > 1 ? 'Новые достижения: ' : 'Новое достижение: ') + list.map(a => a.title).join(', '), { ms: 4200 });
+}
+
+function currentSummary() {
+  const today = dayKey();
   if (tab === 'tasks') {
-    total = state.tasks.length;
-    done = state.tasks.filter(t => t.done).length;
-    html = state.tasks.map(t => `
-      <div class="item ${t.done ? 'done' : ''}">
-        <button class="check ${t.done ? 'on' : ''}" data-act="toggle-task" data-id="${t.id}">${t.done ? '✓' : ''}</button>
-        <div class="title">${esc(t.title)}</div>
-        <button class="del" data-act="del-task" data-id="${t.id}" aria-label="Удалить">✕</button>
-      </div>`).join('');
+    const s = tasksSummary(state.tasks, today);
+    return Object.assign(s, { title: 'Задачи на сегодня', sub: s.total ? `${s.done} из ${s.total} выполнено` : 'Пока нет задач' });
+  }
+  const s = todayHabitSummary(state.habits, today);
+  return Object.assign(s, { title: 'Привычки сегодня', sub: s.total ? `${s.done} из ${s.total} отмечено` : 'На сегодня ничего не запланировано' });
+}
+function isComplete() {
+  if (tab !== 'tasks' && tab !== 'habits') return false;
+  const s = currentSummary();
+  return s.total > 0 && s.done === s.total;
+}
+
+function afterAction(before) {
+  const fresh = unlockNew(state, dayKey());
+  commit();
+  if (fresh.length) announce(fresh);
+  if (!before && isComplete()) confetti();
+}
+
+function toggleTask(id) {
+  const t = state.tasks.find(x => x.id === id);
+  if (!t) return;
+  const before = isComplete(), today = dayKey(), st = state.stats;
+  t.done = !t.done;
+  if (t.done) {
+    t.doneAt = today; st.tasksDone++; st.xp += 5;
+    if (t.due && today <= t.due) { t.onTime = true; st.onTime++; }
   } else {
-    const today = dayKey();
-    total = state.habits.length;
-    done = state.habits.filter(h => h.days.includes(today)).length;
-    html = state.habits.map(h => {
-      const on = h.days.includes(today);
-      const dots = Array.from({ length: 7 }, (_, i) =>
-        `<span class="dot ${h.days.includes(shiftDay(i - 6)) ? 'on' : ''}"></span>`).join('');
-      const s = streak(h);
-      return `
-      <div class="item">
-        <button class="check ${on ? 'on' : ''}" data-act="toggle-habit" data-id="${h.id}">${on ? '✓' : ''}</button>
-        <div class="habit-body">
-          <div class="title">${esc(h.title)}</div>
-          <div class="meta"><div class="dots">${dots}</div><span class="streak">🔥 ${s} дн.</span></div>
-        </div>
-        <button class="del" data-act="del-habit" data-id="${h.id}" aria-label="Удалить">✕</button>
+    t.doneAt = null; st.tasksDone = Math.max(0, st.tasksDone - 1); st.xp = Math.max(0, st.xp - 5);
+    if (t.onTime) { t.onTime = false; st.onTime = Math.max(0, st.onTime - 1); }
+  }
+  hap('light'); ui.anim = id; afterAction(before);
+}
+
+function toggleSub(taskId, subId) {
+  const t = state.tasks.find(x => x.id === taskId);
+  const s = t && t.subs.find(x => x.id === subId);
+  if (!s) return;
+  s.done = !s.done; hap('select'); commit();
+}
+
+function toggleHabit(id) {
+  const h = state.habits.find(x => x.id === id);
+  if (!h) return;
+  const before = isComplete(), today = dayKey(), st = state.stats;
+  const i = h.days.indexOf(today);
+  if (i >= 0) {
+    h.days.splice(i, 1);
+    st.habitChecks = Math.max(0, st.habitChecks - 1); st.xp = Math.max(0, st.xp - 10);
+  } else {
+    h.days.push(today); h.days.sort();
+    if (h.days.length > 400) h.days.splice(0, h.days.length - 400);
+    st.habitChecks++; st.xp += 10;
+    if (new Date().getHours() < 8) st.earlyBird++;
+    const sum = todayHabitSummary(state.habits, today);
+    if (sum.total >= 3 && sum.done === sum.total && st.perfectDate !== today) { st.perfectDays++; st.perfectDate = today; }
+  }
+  st.bestStreak = Math.max(st.bestStreak, bestStreakOf(state.habits, today));
+  hap('light'); ui.anim = id; afterAction(before);
+}
+
+function deleteItem(kind, id) {
+  const get = () => (kind === 'task' ? state.tasks : state.habits);
+  const i = get().findIndex(x => x.id === id);
+  if (i < 0) return;
+  const item = get().splice(i, 1)[0];
+  hap('medium'); commit();
+  toast(kind === 'task' ? 'Задача удалена' : 'Привычка удалена', {
+    action: 'Отменить', ms: 5000,
+    fn: () => { const arr = get(); arr.splice(Math.min(i, arr.length), 0, item); hap('light'); commit(); }
+  });
+}
+
+function reorder(kind, visibleOrder) {
+  const arr = kind === 'task' ? state.tasks : state.habits;
+  const slots = [];
+  arr.forEach((x, i) => { if (visibleOrder.includes(x.id)) slots.push(i); });
+  const byId = new Map(arr.map(x => [x.id, x]));
+  visibleOrder.forEach((id, k) => { if (byId.has(id) && slots[k] !== undefined) arr[slots[k]] = byId.get(id); });
+  hap('light'); commit();
+}
+
+function toggleRemind() {
+  if (!sync.ok) return;
+  state.settings.remind = !state.settings.remind;
+  hap('select'); commit();
+  toast(state.settings.remind ? `Напоминания включены на ${state.settings.time}` : 'Напоминания выключены');
+}
+
+function share() {
+  const lv = levelOf(state.stats.xp);
+  const text = `Мой уровень в трекере: ${lv}. Лучшая серия: ${state.stats.bestStreak} ${plural(state.stats.bestStreak, 'день', 'дня', 'дней')}. Отметок привычек: ${state.stats.habitChecks}.`;
+  const url = sync.bot ? 'https://t.me/' + sync.bot : location.href;
+  const link = 'https://t.me/share/url?url=' + encodeURIComponent(url) + '&text=' + encodeURIComponent(text);
+  try {
+    if (inTg && tg.openTelegramLink) tg.openTelegramLink(link); else window.open(link, '_blank');
+  } catch (e) { window.open(link, '_blank'); }
+}
+
+// ======================================================================
+// Уведомления и конфетти
+// ======================================================================
+let toastTimer;
+function hideToast() { $('toast').classList.remove('show'); }
+function toast(text, opts) {
+  opts = opts || {};
+  const el = $('toast');
+  el.textContent = '';
+  const span = document.createElement('span');
+  span.textContent = text;
+  el.append(span);
+  if (opts.action) {
+    const b = document.createElement('button');
+    b.textContent = opts.action;
+    b.onclick = () => { hideToast(); if (opts.fn) opts.fn(); };
+    el.append(b);
+  }
+  el.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(hideToast, opts.ms || 3500);
+}
+
+function confetti() {
+  hap('success');
+  if (window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+  const c = $('confetti'), ctx = c.getContext('2d'), dpr = window.devicePixelRatio || 1;
+  const W = window.innerWidth, H = window.innerHeight;
+  c.width = W * dpr; c.height = H * dpr;
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  const cs0 = getComputedStyle(document.documentElement);
+  const colors = Array.from({ length: PALETTE_N }, (_, i) => cs0.getPropertyValue('--c' + i).trim() || '#2a78d6');
+  const parts = Array.from({ length: 90 }, () => ({
+    x: W / 2 + (Math.random() - .5) * 80, y: H * .38,
+    vx: (Math.random() - .5) * 11, vy: -4 - Math.random() * 9,
+    s: 6 + Math.random() * 5, r: Math.random() * Math.PI, vr: (Math.random() - .5) * .4,
+    col: colors[(Math.random() * colors.length) | 0]
+  }));
+  const t0 = performance.now();
+  (function frame(now) {
+    const t = now - t0;
+    ctx.clearRect(0, 0, W, H);
+    for (const p of parts) {
+      p.vy += .36; p.x += p.vx; p.y += p.vy; p.r += p.vr; p.vx *= .99;
+      ctx.save(); ctx.translate(p.x, p.y); ctx.rotate(p.r);
+      ctx.globalAlpha = Math.max(0, 1 - t / 2200);
+      ctx.fillStyle = p.col; ctx.fillRect(-p.s / 2, -p.s / 4, p.s, p.s / 2);
+      ctx.restore();
+    }
+    if (t < 2200) requestAnimationFrame(frame); else ctx.clearRect(0, 0, W, H);
+  })(t0);
+}
+
+// ======================================================================
+// Главная кнопка и кнопка «Назад»
+// ======================================================================
+let mainHandler = null;
+function setMain(o) {
+  if (inTg && tg.MainButton) {
+    const mb = tg.MainButton;
+    try {
+      if (mainHandler) mb.offClick(mainHandler);
+      mainHandler = o.onClick || null;
+      if (mainHandler) mb.onClick(mainHandler);
+      if (o.text) mb.setText(o.text);
+      if (o.enabled) mb.enable(); else mb.disable();
+      if (o.visible) mb.show(); else mb.hide();
+    } catch (e) {}
+  } else {
+    const f = $('fab');
+    f.hidden = !o.visible;
+    f.textContent = o.text || '';
+    f.disabled = !o.enabled;
+    f.onclick = o.onClick || null;
+    f.classList.toggle('over', !!sheet);
+  }
+}
+function syncMain() {
+  if (sheet) {
+    const add = sheet.kind === 'task' ? 'Добавить задачу' : 'Добавить привычку';
+    setMain({ text: sheet.id ? 'Сохранить' : add, visible: true, enabled: sheetValid(), onClick: saveSheet });
+  } else if (tab === 'tasks') {
+    setMain({ text: 'Добавить задачу', visible: true, enabled: true, onClick: () => openSheet('task') });
+  } else if (tab === 'habits') {
+    setMain({ text: 'Добавить привычку', visible: true, enabled: true, onClick: () => openSheet('habit') });
+  } else {
+    setMain({ visible: false, enabled: false, onClick: null });
+  }
+}
+function setBack(on) {
+  if (!inTg || !tg.BackButton) return;
+  try {
+    tg.BackButton.offClick(closeSheet);
+    if (on) { tg.BackButton.onClick(closeSheet); tg.BackButton.show(); } else tg.BackButton.hide();
+  } catch (e) {}
+}
+function swipesAllowed(on) {
+  try {
+    if (!inTg) return;
+    if (on && tg.enableVerticalSwipes) tg.enableVerticalSwipes();
+    if (!on && tg.disableVerticalSwipes) tg.disableVerticalSwipes();
+  } catch (e) {}
+}
+
+// ======================================================================
+// Отрисовка
+// ======================================================================
+const CIRC = 188.5;
+const CHECK_SVG = '<svg viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>';
+const SORT_LABEL = { manual: '⇅ Вручную', due: '⇅ По сроку', prio: '⇅ По важности' };
+const SORT_NEXT = { manual: 'due', due: 'prio', prio: 'manual' };
+const empty = (title, text) => `<div class="empty"><b>${title}</b>${text}</div>`;
+let lastStats = null;
+
+function renderAll() {
+  renderHeader(); renderSummary(); renderToolbar(); renderList(); renderNav(); syncMain();
+}
+
+function renderHeader() {
+  $('lvl').textContent = 'Ур. ' + levelOf(state.stats.xp);
+  const s = new Date().toLocaleDateString('ru-RU', { weekday: 'long', day: 'numeric', month: 'long' });
+  $('today').textContent = s.charAt(0).toUpperCase() + s.slice(1);
+}
+
+function renderNav() {
+  document.querySelectorAll('#nav button').forEach(b => {
+    const on = b.dataset.tab === tab;
+    b.classList.toggle('on', on);
+    if (on) b.setAttribute('aria-current', 'page'); else b.removeAttribute('aria-current');
+  });
+}
+
+function renderSummary() {
+  const box = $('summary'), show = tab === 'tasks' || tab === 'habits';
+  box.hidden = !show;
+  if (!show) return;
+  const s = currentSummary(), pct = s.total ? s.done / s.total : 0;
+  $('ringFg').style.strokeDashoffset = String(CIRC * (1 - pct));
+  $('ringTxt').textContent = Math.round(pct * 100) + '%';
+  box.classList.toggle('complete', s.total > 0 && s.done === s.total);
+  $('sTitle').textContent = s.title;
+  $('sSub').textContent = s.sub;
+}
+
+function renderToolbar() {
+  const tb = $('toolbar');
+  tb.hidden = tab !== 'tasks';
+  if (tab !== 'tasks') return;
+  const c = taskCounts(state.tasks, dayKey());
+  const F = [['today', 'Сегодня'], ['upcoming', 'Предстоящие'], ['all', 'Все'], ['done', 'Выполненные']];
+  $('filters').innerHTML = F.map(([k, l]) =>
+    `<button class="chip ${ui.filter === k ? 'on' : ''}" data-filter="${k}">${l} <span class="n">${c[k]}</span></button>`
+  ).join('') + `<button class="chip" data-sort="1">${SORT_LABEL[state.settings.sort]}</button>`;
+  const tags = [...new Set(state.tasks.flatMap(t => t.tags))].sort();
+  if (ui.tag && !tags.includes(ui.tag)) ui.tag = null;
+  $('tagChips').innerHTML = tags.map(t => `<button class="chip ${ui.tag === t ? 'on' : ''}" data-tag="${esc(t)}">#${esc(t)}</button>`).join('');
+  $('tagChips').hidden = !tags.length;
+}
+
+function renderList() {
+  const box = $('list'), today = dayKey();
+  if (tab === 'tasks') box.innerHTML = tasksHtml(today);
+  else if (tab === 'habits') box.innerHTML = habitsHtml(today);
+  else if (tab === 'stats') { box.innerHTML = statsHtml(today); bindChart(); }
+  else box.innerHTML = profileHtml();
+  applyAnim();
+}
+
+function applyAnim() {
+  if (!ui.anim) return;
+  const row = $('list').querySelector(`.row[data-id="${ui.anim}"]`);
+  ui.anim = null;
+  if (!row) return;
+  const chk = row.querySelector('.check'), fg = row.querySelector('.row-fg');
+  if (chk && chk.classList.contains('on')) chk.classList.add('anim');
+  if (fg.classList.contains('done')) { fg.classList.remove('done'); void fg.offsetWidth; fg.classList.add('done'); }
+}
+
+const checkBtn = (on, color) =>
+  `<button class="check ${on ? 'on' : ''} ${color === 3 ? 'ink' : ''}" data-act="toggle" ${color != null ? `style="--cc:var(--c${color})"` : ''} aria-label="${on ? 'Снять отметку' : 'Отметить выполненным'}" aria-pressed="${on}">${CHECK_SVG}</button>`;
+
+function tasksHtml(today) {
+  const list = filterTasks(state.tasks, { filter: ui.filter, q: ui.q, tag: ui.tag, sort: state.settings.sort }, today);
+  if (!list.length) {
+    return state.tasks.length
+      ? empty('Ничего не найдено', 'Смените фильтр или очистите поиск.')
+      : empty('Задач пока нет', 'Нажмите «Добавить задачу» и впишите первое дело.');
+  }
+  return list.map(t => taskRow(t, today)).join('');
+}
+
+function taskRow(t, today) {
+  const due = t.due ? fmtDue(t.due, today) : null;
+  const overdue = !!due && due.cls === 'over' && !t.done;
+  const pills = [];
+  if (t.prio === 2) pills.push('<span class="pill p2">Высокий</span>');
+  if (t.prio === 1) pills.push('<span class="pill p1">Средний</span>');
+  if (due) pills.push(`<span class="pill ${t.done ? '' : due.cls}">${esc(due.text)}</span>`);
+  t.tags.forEach(g => pills.push(`<button class="pill tag ${ui.tag === g ? 'on' : ''}" data-act="tag" data-tag="${esc(g)}">#${esc(g)}</button>`));
+  if (t.subs.length) pills.push(`<span class="pill">${t.subs.filter(s => s.done).length} из ${t.subs.length}</span>`);
+  const subs = t.subs.length
+    ? `<div class="subs">${t.subs.map(s =>
+        `<div class="sub ${s.done ? 'done' : ''}"><button class="sub-check ${s.done ? 'on' : ''}" data-act="sub" data-sub="${esc(s.id)}" aria-label="Подзадача: ${esc(s.title)}">${CHECK_SVG}</button><span>${esc(s.title)}</span></div>`
+      ).join('')}</div>`
+    : '';
+  return `<div class="row" data-kind="task" data-id="${esc(t.id)}">
+    <div class="row-bg"><span class="bg-l">${t.done ? 'Вернуть в работу' : 'Готово'}</span><span class="bg-r">Удалить</span></div>
+    <div class="row-fg ${t.done ? 'done' : ''} ${overdue ? 'overdue' : ''}">
+      ${checkBtn(t.done)}
+      <div class="body" data-act="edit" role="button" tabindex="0">
+        <div class="title"><span class="t">${esc(t.title)}</span></div>
+        ${pills.length ? `<div class="meta">${pills.join('')}</div>` : ''}${subs}
+      </div>
+    </div></div>`;
+}
+
+function habitsHtml(today) {
+  if (!state.habits.length) return empty('Привычек пока нет', 'Заведите первую, например «Стакан воды утром».');
+  return state.habits.map(h => habitRow(h, today)).join('');
+}
+
+function habitRow(h, today) {
+  const sch = h.schedule, set = new Set(h.days), done = set.has(today);
+  const rest = sch.type !== 'weekly' && !isScheduled(sch, today);
+  const dots = Array.from({ length: 7 }, (_, i) => {
+    const k = addDays(today, i - 6), cls = ['dot'];
+    if (set.has(k)) cls.push('d'); else if (sch.type !== 'weekly' && !isScheduled(sch, k)) cls.push('r');
+    if (i === 6) cls.push('t');
+    return `<span class="${cls.join(' ')}"></span>`;
+  }).join('');
+  const st = habitStreak(h, today);
+  let extra = '';
+  if (sch.type === 'weekly') extra = `<span>${weekCount(h, today)} из ${sch.perWeek} на этой неделе</span>`;
+  else if (rest) extra = '<span>Сегодня выходной</span>';
+  return `<div class="row" data-kind="habit" data-id="${esc(h.id)}" style="--cc:var(--c${h.color})">
+    <div class="row-bg"><span class="bg-l">${done ? 'Снять отметку' : 'Отметить'}</span><span class="bg-r">Удалить</span></div>
+    <div class="row-fg ${rest && !done ? 'off' : ''}">
+      ${checkBtn(done, h.color)}
+      <div class="emoji" data-act="edit">${esc(h.emoji)}</div>
+      <div class="body" data-act="edit" role="button" tabindex="0">
+        <div class="title">${esc(h.title)}</div>
+        <div class="meta"><span>${esc(scheduleLabel(sch))}</span>${st.n ? `<span class="streak">🔥 ${st.n} ${st.unit}</span>` : ''}${extra}</div>
+        <div class="dots" aria-hidden="true">${dots}</div>
+      </div>
+    </div></div>`;
+}
+
+// --- статистика ---
+function chartSvg(S) {
+  const W = 320, H = 170, L = 26, R = 4, T = 20, B = 24, pw = W - L - R, ph = H - T - B;
+  const n = S.perDay.length;
+  const maxV = Math.max(1, ...S.perDay.map(d => d.done));
+  const niceMax = maxV <= 4 ? maxV : Math.ceil(maxV / 2) * 2;
+  const ticks = niceMax <= 4 ? Array.from({ length: niceMax + 1 }, (_, i) => i) : [0, niceMax / 2, niceMax];
+  const y = v => T + ph - (v / niceMax) * ph;
+  const band = pw / n, bw = Math.min(24, band * .62);
+  const y0 = y(0);
+  let out = `<svg id="chart" viewBox="0 0 ${W} ${H}" role="img" tabindex="0" aria-label="Столбчатая диаграмма: сколько привычек отмечено в каждый день. Те же данные есть в таблице ниже.">`;
+  ticks.forEach(v => {
+    out += `<line class="grid" x1="${L}" x2="${W - R}" y1="${y(v)}" y2="${y(v)}"/><text class="ax" x="${L - 6}" y="${y(v) + 3.5}" text-anchor="end">${v}</text>`;
+  });
+  out += `<line class="base" x1="${L}" x2="${W - R}" y1="${y0}" y2="${y0}"/>`;
+  let maxI = -1, maxDone = 0;
+  S.perDay.forEach((d, i) => { if (d.done > maxDone) { maxDone = d.done; maxI = i; } });
+  S.perDay.forEach((d, i) => {
+    const cx = L + band * (i + .5), h = (d.done / niceMax) * ph;
+    if (h > 0) {
+      const r = Math.min(4, h / 2, bw / 2), x0 = cx - bw / 2, x1 = cx + bw / 2, yt = y0 - h;
+      out += `<path class="bar" data-i="${i}" d="M${x0} ${y0}V${yt + r}A${r} ${r} 0 0 1 ${x0 + r} ${yt}H${x1 - r}A${r} ${r} 0 0 1 ${x1} ${yt + r}V${y0}Z"/>`;
+      if (i === maxI) out += `<text class="vl" x="${cx}" y="${yt - 5}" text-anchor="middle">${d.done}</text>`;
+    }
+    const label = n <= 7 ? WD_LABELS[weekdayOf(d.date)] : (i % 5 === 0 || i === n - 1 ? String(+d.date.slice(8)) : '');
+    if (label) out += `<text class="ax" x="${cx}" y="${H - 7}" text-anchor="middle">${label}</text>`;
+  });
+  return out + '</svg>';
+}
+
+function statsHtml(today) {
+  const S = periodStats(state, ui.range, today);
+  lastStats = S;
+  const period = ui.range === 7 ? 'за 7 дней' : 'за 30 дней';
+  const pct = S.pct == null ? '—' : Math.round(S.pct * 100) + '%';
+  const best = state.stats.bestStreak;
+  let html = `<div class="seg range" role="group" aria-label="Период">
+    <button data-act="range" data-range="7" class="${ui.range === 7 ? 'on' : ''}">7 дней</button>
+    <button data-act="range" data-range="30" class="${ui.range === 30 ? 'on' : ''}">30 дней</button></div>
+    <div class="tiles">
+      <div class="tile"><div class="lbl">Выполнение привычек</div><div class="val">${pct}</div><div class="sub">${period}</div></div>
+      <div class="tile"><div class="lbl">Лучшая серия</div><div class="val">${best} ${plural(best, 'день', 'дня', 'дней')}</div><div class="sub">за всё время</div></div>
+      <div class="tile"><div class="lbl">Отметок привычек</div><div class="val">${S.checks}</div><div class="sub">${period}</div></div>
+      <div class="tile"><div class="lbl">Задач выполнено</div><div class="val">${S.tasksDone}</div><div class="sub">${period}</div></div>
+    </div>`;
+  if (S.topWeekday >= 0) html += `<div class="best-day">Самый продуктивный день: <b>${WD_NAMES[S.topWeekday]}</b></div>`;
+
+  if (!state.habits.length) {
+    return html + `<div class="card">${empty('Графиков пока нет', 'Добавьте привычки, и здесь появится динамика по дням.')}</div>`;
+  }
+
+  const rows = S.perDay.map(d => `<tr><td>${esc(parseKey(d.date).toLocaleDateString('ru-RU', { weekday: 'short', day: 'numeric', month: 'short' }))}</td><td>${d.done}</td><td>${d.possible || '—'}</td></tr>`).join('');
+  html += `<div class="card">
+    <div class="hd"><h3>Отметки по дням</h3><span class="cap">${period}</span></div>
+    <div class="chart" id="chartBox">${chartSvg(S)}<div class="tip" id="tip" role="presentation"></div></div>
+    <details class="tbl"><summary>Показать таблицей</summary>
+      <table class="data"><thead><tr><th>День</th><th>Отмечено</th><th>План</th></tr></thead><tbody>${rows}</tbody></table>
+    </details></div>`;
+
+  const ranked = [...S.perHabit].sort((a, b) => b.pct - a.pct);
+  html += `<div class="card"><div class="hd"><h3>Выполнение по привычкам</h3><span class="cap">${period}</span></div>` +
+    ranked.map(r => `<div class="hb"><div class="nm">${esc(r.h.emoji)} ${esc(r.h.title)}</div>
+      <div class="bar-t"><i style="width:${Math.round(r.pct * 100)}%"></i></div>
+      <div class="pc">${r.possible ? Math.round(r.pct * 100) + '%' : '—'}</div></div>`).join('') + '</div>';
+  return html;
+}
+
+function bindChart() {
+  const svg = $('chart');
+  if (!svg || !lastStats) return;
+  const box = $('chartBox'), tip = $('tip'), S = lastStats, n = S.perDay.length;
+  const W = 320, H = 170, L = 26, R = 4, T = 20, B = 24, pw = W - L - R, ph = H - T - B;
+  const band = pw / n;
+  const maxV = Math.max(1, ...S.perDay.map(d => d.done));
+  const niceMax = maxV <= 4 ? maxV : Math.ceil(maxV / 2) * 2;
+  let hideTimer, cur = n - 1;
+
+  function showAt(i) {
+    cur = Math.max(0, Math.min(n - 1, i));
+    const d = S.perDay[cur];
+    svg.querySelectorAll('.bar').forEach(b => b.classList.toggle('dim', +b.dataset.i !== cur));
+    const val = document.createElement('b');
+    val.textContent = d.possible ? `${d.done} из ${d.possible}` : String(d.done);
+    const lab = document.createElement('span');
+    lab.textContent = parseKey(d.date).toLocaleDateString('ru-RU', { weekday: 'short', day: 'numeric', month: 'long' });
+    tip.replaceChildren(val, lab);
+    const r = svg.getBoundingClientRect(), k = r.width / W;
+    const yTop = T + ph - (d.done / niceMax) * ph;
+    tip.style.left = Math.max(60, Math.min(r.width - 60, (L + band * (cur + .5)) * k)) + 'px';
+    tip.style.top = Math.max(34, yTop * k - 6) + 'px';
+    tip.style.opacity = '1';
+  }
+  function hide() {
+    tip.style.opacity = '0';
+    svg.querySelectorAll('.bar').forEach(b => b.classList.remove('dim'));
+  }
+  function fromEvent(e) {
+    const r = svg.getBoundingClientRect();
+    return Math.floor(((e.clientX - r.left) / r.width * W - L) / band);
+  }
+  svg.addEventListener('pointerdown', e => { showAt(fromEvent(e)); clearTimeout(hideTimer); });
+  svg.addEventListener('pointermove', e => { if (e.pointerType === 'mouse' || e.buttons) showAt(fromEvent(e)); });
+  svg.addEventListener('pointerup', e => { if (e.pointerType !== 'mouse') { clearTimeout(hideTimer); hideTimer = setTimeout(hide, 2600); } });
+  svg.addEventListener('pointerleave', e => { if (e.pointerType === 'mouse') hide(); });
+  svg.addEventListener('focus', () => showAt(cur));
+  svg.addEventListener('blur', hide);
+  svg.addEventListener('keydown', e => {
+    if (e.key === 'ArrowLeft') { showAt(cur - 1); e.preventDefault(); }
+    if (e.key === 'ArrowRight') { showAt(cur + 1); e.preventDefault(); }
+  });
+}
+
+// --- профиль ---
+function profileHtml() {
+  const xp = state.stats.xp, lv = levelOf(xp), a = levelStart(lv), b = levelStart(lv + 1);
+  const pct = Math.round((xp - a) / (b - a) * 100);
+  const have = new Map(state.ach.map(x => [x.id, x]));
+  const cards = ACHIEVEMENTS.map(x => {
+    const got = have.get(x.id), v = Math.min(x.value(state), x.goal);
+    const status = got
+      ? 'Получено ' + parseKey(got.at).toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' })
+      : `${v} из ${x.goal}`;
+    return `<div class="ach ${got ? 'got' : ''}"><div class="ico">${x.icon}</div><div class="nm">${esc(x.title)}</div><div class="ds">${esc(x.desc)}</div><div class="pr">${esc(status)}</div></div>`;
+  }).join('');
+  const hint = !inTg
+    ? 'Откройте приложение в Telegram, чтобы включить напоминания.'
+    : sync.ok
+      ? 'Данные синхронизируются с ботом. Он пришлёт сообщение с кнопками «Отметить».'
+      : 'Сервер бота сейчас недоступен. Напоминания заработают, когда связь восстановится.';
+  const dis = sync.ok ? '' : 'disabled';
+  return `<div class="card">
+      <div class="lv-top"><div class="lv-n">Уровень ${lv}</div><div class="lv-xp">${xp} XP</div></div>
+      <div class="meter" role="img" aria-label="Прогресс до следующего уровня: ${pct}%"><i style="width:${pct}%"></i></div>
+      <div class="cap">До уровня ${lv + 1} осталось ${b - xp} XP</div>
+    </div>
+    <div class="card"><h3>Напоминания</h3>
+      <div class="setting"><div>Напоминать о привычках</div>
+        <button class="switch ${state.settings.remind ? 'on' : ''}" data-act="remind" role="switch" aria-checked="${state.settings.remind}" aria-label="Напоминать о привычках" ${dis}></button></div>
+      <div class="setting"><label for="remindTime">Время напоминания</label>
+        <input id="remindTime" type="time" value="${esc(state.settings.time)}" ${dis}></div>
+      <div class="hint">${hint}</div>
+    </div>
+    <h3 class="sec">Достижения <span class="count">${state.ach.length} из ${ACHIEVEMENTS.length}</span></h3>
+    <div class="achs">${cards}</div>
+    <button class="btn" data-act="share">Поделиться прогрессом</button>`;
+}
+
+// ======================================================================
+// Нижняя панель: добавление и редактирование
+// ======================================================================
+const EMOJIS = ['💧', '🏃', '📚', '🧘', '🥗', '😴', '💪', '🎸', '✍️', '🧹', '💊', '🚶', '🪥', '🌿', '🎨', '💻', '🧠', '📵'];
+let sheet = null;
+
+const seg = (name, items, cur) =>
+  `<div class="seg">${items.map(([v, l]) => `<button type="button" data-s="${name}" data-v="${v}" class="${String(cur) === String(v) ? 'on' : ''}">${l}</button>`).join('')}</div>`;
+
+function sheetValid() {
+  if (!sheet) return false;
+  const d = sheet.d;
+  if (!d.title.trim()) return false;
+  if (sheet.kind === 'habit' && d.type === 'days' && !d.days.length) return false;
+  return true;
+}
+
+function openSheet(kind, id) {
+  if (kind === 'task') {
+    const t = id ? state.tasks.find(x => x.id === id) : null;
+    sheet = { kind, id: t ? t.id : null, d: t
+      ? { title: t.title, due: t.due || '', prio: t.prio, tags: t.tags.join(', '), subs: t.subs.map(s => s.title).join('\n') }
+      : { title: '', due: '', prio: 0, tags: '', subs: '' } };
+  } else {
+    const h = id ? state.habits.find(x => x.id === id) : null;
+    sheet = { kind, id: h ? h.id : null, d: h
+      ? { title: h.title, emoji: h.emoji, color: h.color, type: h.schedule.type, days: [...h.schedule.days], perWeek: h.schedule.perWeek }
+      : { title: '', emoji: EMOJIS[0], color: state.habits.length % PALETTE_N, type: 'daily', days: [1, 2, 3, 4, 5], perWeek: 3 } };
+  }
+  if (!sheet.id === false && !sheet.d) return;
+  renderSheet();
+  const w = $('sheetWrap');
+  w.classList.add('open');
+  requestAnimationFrame(() => w.classList.add('show'));
+  setBack(true);
+  syncMain();
+  if (!sheet.id) setTimeout(() => { const f = $('fTitle'); if (f && !inTg) f.focus(); }, 300);
+}
+
+function closeSheet() {
+  if (!sheet) return;
+  sheet = null;
+  const w = $('sheetWrap');
+  w.classList.remove('show');
+  setTimeout(() => { if (!sheet) w.classList.remove('open'); }, 260);
+  setBack(false);
+  syncMain();
+}
+
+function renderSheet() {
+  if (!sheet) return;
+  const d = sheet.d, isTask = sheet.kind === 'task', edit = !!sheet.id;
+  $('sheetTitle').textContent = (edit ? 'Изменить ' : 'Новая ') + (isTask ? 'задачу' : 'привычку');
+  if (!edit && isTask) $('sheetTitle').textContent = 'Новая задача';
+  if (!edit && !isTask) $('sheetTitle').textContent = 'Новая привычка';
+  let body = `<label class="fld"><span>Название</span><input type="text" id="fTitle" maxlength="100" autocomplete="off" value="${esc(d.title)}" placeholder="${isTask ? 'Что нужно сделать' : 'Например, зарядка'}"></label>`;
+  if (isTask) {
+    body += `<div class="fld"><span class="lbl">Срок</span><input type="date" id="fDue" value="${esc(d.due)}">
+        <div class="quick"><button type="button" class="chip" data-s="due" data-v="0">Сегодня</button><button type="button" class="chip" data-s="due" data-v="1">Завтра</button><button type="button" class="chip" data-s="due" data-v="clear">Без срока</button></div></div>
+      <div class="fld"><span class="lbl">Важность</span>${seg('prio', [[0, 'Обычная'], [1, 'Средняя'], [2, 'Высокая']], d.prio)}</div>
+      <label class="fld"><span>Теги через запятую</span><input type="text" id="fTags" autocomplete="off" value="${esc(d.tags)}" placeholder="работа, дом"></label>
+      <label class="fld"><span>Подзадачи, по одной в строке</span><textarea id="fSubs" rows="3" placeholder="Купить билеты&#10;Забронировать отель">${esc(d.subs)}</textarea></label>`;
+  } else {
+    body += `<div class="fld"><span class="lbl">Значок</span><div class="emojis">${EMOJIS.map(e => `<button type="button" data-s="emoji" data-v="${e}" class="${d.emoji === e ? 'on' : ''}" aria-label="Значок ${e}">${e}</button>`).join('')}</div></div>
+      <div class="fld"><span class="lbl">Цвет</span><div class="swatches">${Array.from({ length: PALETTE_N }, (_, i) => `<button type="button" class="swatch ${d.color === i ? 'on' : ''}" style="--sc:var(--c${i})" data-s="color" data-v="${i}" aria-label="Цвет ${i + 1}"></button>`).join('')}</div></div>
+      <div class="fld"><span class="lbl">Расписание</span>${seg('type', [['daily', 'Каждый день'], ['days', 'По дням'], ['weekly', 'Раз в неделю']], d.type)}
+        ${d.type === 'days' ? `<div class="wd">${WD_ORDER.map(w => `<button type="button" data-s="wd" data-v="${w}" class="${d.days.includes(w) ? 'on' : ''}">${WD_LABELS[w]}</button>`).join('')}</div><div class="hint">В остальные дни серия не прерывается.</div>` : ''}
+        ${d.type === 'weekly' ? `<div class="stepper"><button type="button" data-s="pw" data-v="-1" aria-label="Меньше">−</button><b>${d.perWeek} ${plural(d.perWeek, 'раз', 'раза', 'раз')} в неделю</b><button type="button" data-s="pw" data-v="1" aria-label="Больше">+</button></div><div class="hint">Серия считается по неделям, в которых цель выполнена.</div>` : ''}
       </div>`;
-    }).join('');
   }
-
-  list.innerHTML = html || `<div class="empty">${tab === 'tasks' ? 'Задач пока нет. Добавьте первую!' : 'Привычек пока нет. Заведите первую!'}</div>`;
-  $('bar').style.width = total ? Math.round(done / total * 100) + '%' : '0';
+  if (edit) body += `<button type="button" class="link-danger" data-s="delete">${isTask ? 'Удалить задачу' : 'Удалить привычку'}</button>`;
+  $('sheetBody').innerHTML = body;
 }
 
-// ---------- События ----------
-function haptic(kind = 'light') {
-  try { tg && tg.HapticFeedback && tg.HapticFeedback.impactOccurred(kind); } catch (e) {}
+function saveSheet() {
+  if (!sheet || !sheetValid()) return;
+  const d = sheet.d, title = d.title.trim();
+  if (sheet.kind === 'task') {
+    const tags = [...new Set(d.tags.split(/[\s,#]+/).map(x => x.trim().toLowerCase()).filter(Boolean))].slice(0, 6).map(x => x.slice(0, 20));
+    const lines = d.subs.split('\n').map(x => x.trim()).filter(Boolean).slice(0, 20);
+    let t = sheet.id ? state.tasks.find(x => x.id === sheet.id) : null;
+    if (t) {
+      const pool = [...t.subs];
+      t.title = title; t.due = d.due || null; t.prio = d.prio; t.tags = tags;
+      t.subs = lines.map(line => {
+        const k = pool.findIndex(s => s.title === line);
+        return k >= 0 ? pool.splice(k, 1)[0] : { id: uid(), title: line, done: false };
+      });
+    } else {
+      t = { id: uid(), title, done: false, due: d.due || null, prio: d.prio, tags, subs: lines.map(line => ({ id: uid(), title: line, done: false })), doneAt: null, onTime: false };
+      state.tasks.unshift(t);
+      const visible = filterTasks(state.tasks, { filter: ui.filter, q: ui.q, tag: ui.tag, sort: state.settings.sort }, dayKey()).some(x => x.id === t.id);
+      if (!visible) { ui.filter = 'all'; ui.q = ''; ui.tag = null; $('q').value = ''; }
+    }
+  } else {
+    const sch = { type: d.type, days: d.type === 'days' ? [...d.days].sort() : [], perWeek: d.perWeek };
+    const h = sheet.id ? state.habits.find(x => x.id === sheet.id) : null;
+    if (h) { h.title = title; h.emoji = d.emoji; h.color = d.color; h.schedule = sch; }
+    else state.habits.push({ id: uid(), title, emoji: d.emoji, color: d.color, schedule: sch, days: [], createdAt: dayKey() });
+  }
+  hap('medium');
+  closeSheet();
+  commit();
 }
 
-document.querySelectorAll('.tab').forEach(b => b.addEventListener('click', () => {
-  tab = b.dataset.tab; haptic(); render();
-}));
+// ======================================================================
+// События
+// ======================================================================
+let suppressClick = false;
 
-$('addForm').addEventListener('submit', async e => {
-  e.preventDefault();
-  const title = $('addInput').value.trim();
-  if (!title) return;
-  if (tab === 'tasks') state.tasks.unshift({ id: uid(), title, done: false });
-  else state.habits.push({ id: uid(), title, days: [] });
-  $('addInput').value = '';
-  haptic('medium'); render(); await save();
+function setTab(t) {
+  tab = t; window.scrollTo(0, 0); hap('select'); renderAll();
+}
+
+document.addEventListener('click', e => {
+  const tb = e.target.closest('[data-tab]');
+  if (tb) setTab(tb.dataset.tab);
 });
 
-$('list').addEventListener('click', async e => {
-  const btn = e.target.closest('[data-act]');
-  if (!btn) return;
-  const { act, id } = btn.dataset;
+$('toolbar').addEventListener('click', e => {
+  const f = e.target.closest('[data-filter]'), s = e.target.closest('[data-sort]'), g = e.target.closest('[data-tag]');
+  if (f) { ui.filter = f.dataset.filter; hap('select'); renderToolbar(); renderList(); }
+  else if (s) { state.settings.sort = SORT_NEXT[state.settings.sort]; hap('select'); commit(); }
+  else if (g) { ui.tag = ui.tag === g.dataset.tag ? null : g.dataset.tag; hap('select'); renderToolbar(); renderList(); }
+});
+$('q').addEventListener('input', e => { ui.q = e.target.value; renderList(); });
 
-  if (act === 'toggle-task') {
-    const t = state.tasks.find(x => x.id === id); t.done = !t.done;
-  } else if (act === 'del-task') {
-    state.tasks = state.tasks.filter(x => x.id !== id);
-  } else if (act === 'toggle-habit') {
-    const h = state.habits.find(x => x.id === id), today = dayKey();
-    h.days = h.days.includes(today) ? h.days.filter(d => d !== today) : [...h.days, today];
-    h.days = h.days.slice(-120); // не раздуваем хранилище
-  } else if (act === 'del-habit') {
-    state.habits = state.habits.filter(x => x.id !== id);
+$('list').addEventListener('click', e => {
+  if (suppressClick) return;
+  const el = e.target.closest('[data-act]');
+  if (!el) return;
+  const row = el.closest('.row'), kind = row && row.dataset.kind, id = row && row.dataset.id;
+  switch (el.dataset.act) {
+    case 'toggle': if (kind === 'task') toggleTask(id); else toggleHabit(id); break;
+    case 'edit': openSheet(kind, id); break;
+    case 'sub': toggleSub(id, el.dataset.sub); break;
+    case 'tag': ui.tag = ui.tag === el.dataset.tag ? null : el.dataset.tag; hap('select'); renderToolbar(); renderList(); break;
+    case 'range': ui.range = +el.dataset.range; hap('select'); renderList(); break;
+    case 'remind': toggleRemind(); break;
+    case 'share': share(); break;
   }
-  haptic(); render(); await save();
+});
+$('list').addEventListener('keydown', e => {
+  if ((e.key === 'Enter' || e.key === ' ') && e.target.matches('[data-act="edit"]')) { e.preventDefault(); e.target.click(); }
+});
+$('list').addEventListener('change', e => {
+  if (e.target.id === 'remindTime' && /^([01]\d|2[0-3]):[0-5]\d$/.test(e.target.value)) {
+    state.settings.time = e.target.value;
+    commit({ render: false });
+    if (state.settings.remind) toast(`Напоминание придёт в ${state.settings.time}`);
+  }
+});
+$('list').addEventListener('contextmenu', e => { if (e.target.closest('.row')) e.preventDefault(); });
+
+// --- панель добавления ---
+$('backdrop').addEventListener('click', closeSheet);
+$('sheetX').addEventListener('click', closeSheet);
+document.addEventListener('keydown', e => { if (e.key === 'Escape') closeSheet(); });
+$('sheetBody').addEventListener('input', e => {
+  if (!sheet) return;
+  const key = { fTitle: 'title', fDue: 'due', fTags: 'tags', fSubs: 'subs' }[e.target.id];
+  if (key) { sheet.d[key] = e.target.value; syncMain(); }
+});
+$('sheetBody').addEventListener('keydown', e => {
+  if (e.key === 'Enter' && e.target.id === 'fTitle') { e.preventDefault(); saveSheet(); }
+});
+$('sheetBody').addEventListener('click', e => {
+  const el = e.target.closest('[data-s]');
+  if (!el || !sheet) return;
+  const v = el.dataset.v, d = sheet.d;
+  switch (el.dataset.s) {
+    case 'prio': d.prio = +v; break;
+    case 'due': d.due = v === 'clear' ? '' : addDays(dayKey(), +v); break;
+    case 'emoji': d.emoji = v; break;
+    case 'color': d.color = +v; break;
+    case 'type': d.type = v; break;
+    case 'wd': { const w = +v; d.days = d.days.includes(w) ? d.days.filter(x => x !== w) : [...d.days, w]; break; }
+    case 'pw': d.perWeek = Math.min(7, Math.max(1, d.perWeek + +v)); break;
+    case 'delete': { const k = sheet.kind, id = sheet.id; closeSheet(); deleteItem(k, id); return; }
+  }
+  hap('select');
+  renderSheet();
+  syncMain();
 });
 
-// ---------- Старт ----------
+// --- жесты: свайп вправо отмечает, влево удаляет, долгое нажатие переставляет ---
+const G = { row: null, kind: '', x0: 0, y0: 0, dx: 0, mode: 'idle', timer: null, pid: null, grabY: 0 };
+
+$('list').addEventListener('pointerdown', e => {
+  if (e.button !== undefined && e.button !== 0) return;
+  if (tab !== 'tasks' && tab !== 'habits') return;
+  if (e.target.closest('input, textarea, .sub-check')) return;
+  const row = e.target.closest('.row');
+  if (!row) return;
+  Object.assign(G, { row, kind: row.dataset.kind, x0: e.clientX, y0: e.clientY, dx: 0, mode: 'pending', pid: e.pointerId });
+  clearTimeout(G.timer);
+  G.timer = setTimeout(startDrag, 420);
+});
+
+window.addEventListener('pointermove', e => {
+  if (G.mode === 'idle' || e.pointerId !== G.pid) return;
+  const dx = e.clientX - G.x0, dy = e.clientY - G.y0;
+  if (G.mode === 'pending') {
+    if (Math.abs(dx) < 8 && Math.abs(dy) < 8) return;
+    clearTimeout(G.timer);
+    if (Math.abs(dx) > Math.abs(dy)) {
+      G.mode = 'swipe';
+      G.row.classList.add('moving');
+      try { G.row.setPointerCapture(e.pointerId); } catch (_) {}
+    } else { G.mode = 'scroll'; return; }
+  }
+  if (G.mode === 'swipe') {
+    G.dx = dx;
+    G.row.querySelector('.row-fg').style.transform = `translateX(${dx}px)`;
+    G.row.classList.toggle('sw-r', dx > 0);
+    G.row.classList.toggle('sw-l', dx < 0);
+    suppressClick = true;
+  } else if (G.mode === 'drag') {
+    dragMove(e);
+  }
+});
+
+$('list').addEventListener('touchmove', e => {
+  if (G.mode === 'swipe' || G.mode === 'drag') e.preventDefault();
+}, { passive: false });
+
+window.addEventListener('pointerup', e => { if (e.pointerId === G.pid) finishGesture(false); });
+window.addEventListener('pointercancel', e => { if (e.pointerId === G.pid) finishGesture(true); });
+
+function finishGesture(cancelled) {
+  clearTimeout(G.timer);
+  const row = G.row, mode = G.mode, dx = G.dx;
+  G.mode = 'idle'; G.row = null;
+  if (!row) return;
+  if (mode === 'swipe') {
+    row.classList.remove('moving', 'sw-r', 'sw-l');
+    row.querySelector('.row-fg').style.transform = '';
+    if (!cancelled && Math.abs(dx) > 90) {
+      const kind = row.dataset.kind, id = row.dataset.id;
+      if (dx > 0) { if (kind === 'task') toggleTask(id); else toggleHabit(id); }
+      else deleteItem(kind, id);
+    }
+  } else if (mode === 'drag') {
+    endDrag(row, cancelled);
+  }
+  if (mode === 'swipe' || mode === 'drag') {
+    suppressClick = true;
+    setTimeout(() => { suppressClick = false; }, 250);
+  }
+}
+
+function startDrag() {
+  if (G.mode !== 'pending' || !G.row) return;
+  if (G.kind === 'task' && state.settings.sort !== 'manual') {
+    G.mode = 'idle';
+    hap('warning');
+    toast('Перетаскивать можно при сортировке «Вручную»');
+    return;
+  }
+  G.mode = 'drag';
+  hap('medium');
+  G.grabY = G.y0 - G.row.getBoundingClientRect().top;
+  G.row.classList.add('dragging');
+  try { G.row.setPointerCapture(G.pid); } catch (_) {}
+  swipesAllowed(false);
+}
+
+function dragMove(e) {
+  const list = $('list'), row = G.row, h = row.offsetHeight;
+  const desiredTop = (e.clientY - list.getBoundingClientRect().top) - G.grabY;
+  const center = desiredTop + h / 2;
+  for (const s of list.querySelectorAll('.row')) {
+    if (s === row) continue;
+    const mid = s.offsetTop + s.offsetHeight / 2;
+    if (s.offsetTop > row.offsetTop && center > mid) { s.after(row); break; }
+    if (s.offsetTop < row.offsetTop && center < mid) { s.before(row); break; }
+  }
+  row.style.transform = `translateY(${desiredTop - row.offsetTop}px) scale(1.02)`;
+  if (e.clientY < 90) window.scrollBy(0, -10);
+  else if (e.clientY > window.innerHeight - 140) window.scrollBy(0, 10);
+}
+
+function endDrag(row, cancelled) {
+  row.classList.remove('dragging');
+  row.style.transform = '';
+  swipesAllowed(true);
+  if (cancelled) { renderList(); return; }
+  reorder(G.kind || row.dataset.kind, [...$('list').querySelectorAll('.row')].map(r => r.dataset.id));
+}
+
+// --- возвращение в приложение ---
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) {
+    if (sync.timer) { clearTimeout(sync.timer); push(); }
+  } else {
+    renderAll();
+    pull();
+  }
+});
+
+// ======================================================================
+// Старт
+// ======================================================================
 (async function init() {
   const user = tg && tg.initDataUnsafe && tg.initDataUnsafe.user;
-  if (user && user.first_name) $('hello').textContent = `Привет, ${user.first_name}!`;
-  $('today').textContent = new Date().toLocaleDateString('ru-RU', { weekday: 'long', day: 'numeric', month: 'long' });
-  await load();
-  render();
+  $('hello').textContent = user && user.first_name ? `Привет, ${user.first_name}!` : 'Привет!';
+  state = normalize(await localLoad());
+  if (reconcile()) { touch(); localSave(); }
+  renderAll();
+  pull();
 })();
 </script>
 </body>
